@@ -58,7 +58,7 @@ jobs:
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
               <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
-              <application android:label="বেতার" android:usesCleartextTraffic="true"
+              <application android:label="Betar Radio" android:icon="@drawable/ic_launcher" android:roundIcon="@drawable/ic_launcher" android:usesCleartextTraffic="true"
                   android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
                   <activity android:name=".MainActivity" android:exported="true"
                       android:configChanges="orientation|screenSize|keyboardHidden" android:launchMode="singleTask">
@@ -71,10 +71,22 @@ jobs:
               </application>
           </manifest>
           WALKIE_EOF_4
+          mkdir -p "$(dirname app/src/main/res/drawable/ic_launcher.xml)"
+          cat > app/src/main/res/drawable/ic_launcher.xml <<'WALKIE_EOF_5'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+              <path android:fillColor="#121A2B" android:pathData="M0,0h108v108h-108z"/>
+              <path android:fillColor="#7BE0D0" android:pathData="M60,12h6v24h-6z"/>
+              <path android:fillColor="#EAF0FF" android:pathData="M42,34h24a8,8 0 0 1 8,8v44a8,8 0 0 1 -8,8h-24a8,8 0 0 1 -8,-8v-44a8,8 0 0 1 8,-8z"/>
+              <path android:fillColor="#121A2B" android:pathData="M42,44h24v4h-24z M42,52h24v4h-24z M42,60h24v4h-24z"/>
+              <path android:fillColor="#FF5C8A" android:pathData="M54,72m-6,0a6,6 0 1 0 12,0a6,6 0 1 0 -12,0"/>
+          </vector>
+          WALKIE_EOF_5
           mkdir -p "$(dirname app/src/main/java/com/walkie/app/MainActivity.kt)"
-          cat > app/src/main/java/com/walkie/app/MainActivity.kt <<'WALKIE_EOF_5'
+          cat > app/src/main/java/com/walkie/app/MainActivity.kt <<'WALKIE_EOF_6'
           package com.walkie.app
- 
+
           import android.Manifest
           import android.annotation.SuppressLint
           import android.content.Intent
@@ -87,17 +99,17 @@ jobs:
           import android.webkit.*
           import android.app.Activity
           import androidx.webkit.WebViewAssetLoader
- 
+
           class MainActivity : Activity() {
               private lateinit var web: WebView
- 
+
               @SuppressLint("SetJavaScriptEnabled")
               override fun onCreate(b: Bundle?) {
                   super.onCreate(b)
                   val perms = mutableListOf(Manifest.permission.RECORD_AUDIO)
                   if (Build.VERSION.SDK_INT >= 33) perms += Manifest.permission.POST_NOTIFICATIONS
                   requestPermissions(perms.toTypedArray(), 1)
- 
+
                   // serves assets over https://appassets.androidplatform.net so getUserMedia (mic) is allowed
                   val loader = WebViewAssetLoader.Builder().addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this)).build()
                   web = WebView(this).apply {
@@ -116,7 +128,7 @@ jobs:
                   }
                   setContentView(web)
               }
- 
+
               inner class Bridge {
                   @Volatile private var foundAddr = ""
                   /** Finds the host phone on this Wi-Fi by itself, so nobody types an IP. */
@@ -138,7 +150,7 @@ jobs:
                           .flatMap { it.inetAddresses.toList() }.firstOrNull { it is java.net.Inet4Address && it.isSiteLocalAddress }?.hostAddress ?: ""
                   } catch (e: Exception) { "" }
               }
- 
+
               override fun onRequestPermissionsResult(c: Int, p: Array<out String>, r: IntArray) {
                   if (r.isNotEmpty() && r[0] == PackageManager.PERMISSION_GRANTED) {
                       startForegroundService(Intent(this, RadioService::class.java))   // radio stays alive in background
@@ -147,15 +159,15 @@ jobs:
                           startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
                   }
               }
- 
+
               // NOTE: we deliberately never call web.onPause(), so JS/audio keep running with the screen off.
               override fun onBackPressed() { moveTaskToBack(true) }
           }
-          WALKIE_EOF_5
+          WALKIE_EOF_6
           mkdir -p "$(dirname app/src/main/java/com/walkie/app/RadioService.kt)"
-          cat > app/src/main/java/com/walkie/app/RadioService.kt <<'WALKIE_EOF_6'
+          cat > app/src/main/java/com/walkie/app/RadioService.kt <<'WALKIE_EOF_7'
           package com.walkie.app
- 
+
           import android.app.*
           import android.content.Context
           import android.content.Intent
@@ -164,28 +176,28 @@ jobs:
           import android.os.Build
           import android.os.IBinder
           import android.os.PowerManager
- 
+
           /** Keeps the process alive (screen off / app in background) while the radio is on. */
           class RadioService : Service() {
               private var cpu: PowerManager.WakeLock? = null
               private var wifi: WifiManager.WifiLock? = null
- 
+
               override fun onCreate() {
                   super.onCreate()
                   val nm = getSystemService(NotificationManager::class.java)
                   if (Build.VERSION.SDK_INT >= 26) nm.createNotificationChannel(NotificationChannel("radio", "রেডিও চালু", NotificationManager.IMPORTANCE_LOW))
                   val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
                   val n = Notification.Builder(this, "radio")
-                      .setContentTitle("বেতার চালু আছে").setContentText("ব্যাকগ্রাউন্ডে শুনছে")
+                      .setContentTitle("Betar Radio is on").setContentText("ব্যাকগ্রাউন্ডে শুনছে")
                       .setSmallIcon(android.R.drawable.ic_btn_speak_now).setContentIntent(open).setOngoing(true).build()
                   if (Build.VERSION.SDK_INT >= 29) startForeground(1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE) else startForeground(1, n)
- 
+
                   cpu = (getSystemService(Context.POWER_SERVICE) as PowerManager).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "walkie:cpu").apply { acquire() }
                   val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
                   val mode = if (Build.VERSION.SDK_INT >= 29) WifiManager.WIFI_MODE_FULL_LOW_LATENCY else WifiManager.WIFI_MODE_FULL_HIGH_PERF
                   wifi = wm.createWifiLock(mode, "walkie:wifi").apply { acquire() }
               }
- 
+
               private var host: HostServer? = null
               override fun onStartCommand(i: Intent?, f: Int, id: Int): Int {
                   if (i != null && i.hasExtra("host")) {
@@ -197,11 +209,11 @@ jobs:
               override fun onBind(i: Intent?): IBinder? = null
               override fun onDestroy() { try { host?.stop(200) } catch (e: Exception) {}; cpu?.release(); wifi?.release(); super.onDestroy() }
           }
-          WALKIE_EOF_6
+          WALKIE_EOF_7
           mkdir -p "$(dirname app/src/main/java/com/walkie/app/HostServer.kt)"
-          cat > app/src/main/java/com/walkie/app/HostServer.kt <<'WALKIE_EOF_7'
+          cat > app/src/main/java/com/walkie/app/HostServer.kt <<'WALKIE_EOF_8'
           package com.walkie.app
- 
+
           import org.java_websocket.WebSocket
           import org.java_websocket.handshake.ClientHandshake
           import org.java_websocket.server.WebSocketServer
@@ -209,18 +221,18 @@ jobs:
           import org.json.JSONObject
           import java.net.InetSocketAddress
           import java.nio.ByteBuffer
- 
+
           /** The same relay as server.js, running inside the phone that is "host". */
           class HostServer(port: Int) : WebSocketServer(InetSocketAddress(port)) {
               class C(val id: Int, val name: String, val avatar: Int) { var room: String? = null }
               class Room { val members = LinkedHashSet<WebSocket>(); var talker: WebSocket? = null }
- 
+
               private val calls = "Alpha Ace Bravo Beta Charlie Cobra Delta Echo Foxtrot Falcon Golf Ghost Hotel Hawk India Ice Juliet Jaguar Kilo King Lima Lion Mike Matrix November Ninja Oscar Omega Papa Phoenix Quebec Quantum Romeo Raven Sierra Sigma Tango Thunder Uniform Ultra Victor Viper Whiskey Wolf Xray Xenon Yankee Yoyo Zulu Zero".split(" ")
               private val clients = HashMap<WebSocket, C>()
               private val names = HashMap<String, WebSocket>()
               private val rooms = HashMap<String, Room>()
               private var nextId = 1
- 
+
               private fun roomOf(c: C) = c.room?.let { rooms[it] }
               private fun send(w: WebSocket, o: JSONObject) { if (w.isOpen) w.send(o.toString()) }
               private fun err(w: WebSocket, m: String) = send(w, JSONObject().put("t", "error").put("msg", m))
@@ -248,21 +260,21 @@ jobs:
                   send(w, JSONObject().put("t", "entered").put("room", if (priv) key else JSONObject.NULL).put("you", c.id).put("list", list(r)))
                   pushMembers(r)
               }
- 
+
               override fun onOpen(w: WebSocket, h: ClientHandshake) { synchronized(this) { pushTaken() } }
               override fun onClose(w: WebSocket, code: Int, reason: String?, remote: Boolean) {
                   synchronized(this) { clients[w]?.let { leave(w); names.remove(it.name.lowercase()); clients.remove(w) }; pushTaken() }
               }
               override fun onError(w: WebSocket?, e: Exception) {}
               override fun onStart() { connectionLostTimeout = 20 }
- 
+
               override fun onMessage(w: WebSocket, data: ByteBuffer) {
                   synchronized(this) {
                       val c = clients[w] ?: return; val r = roomOf(c) ?: return
                       if (r.talker === w) r.members.forEach { if (it !== w && it.isOpen) it.send(data.duplicate()) }
                   }
               }
- 
+
               override fun onMessage(w: WebSocket, text: String) { synchronized(this) {
                   val m = try { JSONObject(text) } catch (e: Exception) { return }
                   val c = clients[w]
@@ -298,13 +310,13 @@ jobs:
                   Unit
               } }
           }
-          WALKIE_EOF_7
+          WALKIE_EOF_8
           mkdir -p "$(dirname app/src/main/assets/index.html)"
-          cat > app/src/main/assets/index.html <<'WALKIE_EOF_8'
+          cat > app/src/main/assets/index.html <<'WALKIE_EOF_9'
           <!DOCTYPE html>
           <html lang="bn"><head><meta charset="utf-8">
           <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-          <title>বেতার</title>
+          <title>Betar Radio</title>
           <style>
           :root{--bg:#121a2b;--panel:#1c2740;--line:#2c3b5e;--text:#eaf0ff;--dim:#8fa0c4;--tx:#ff5c8a;--ok:#7be0d0;--warn:#ffc857}
           *{box-sizing:border-box}
@@ -346,7 +358,7 @@ jobs:
           </style>
           </head><body>
           <section id="login" class="screen on">
-            <h1>বেতার</h1>
+            <h1>Betar Radio</h1>
             <p style="color:var(--dim)">একই ওয়াইফাইয়ের সবার সাথে কথা বলুন। লগইন বা টাকা লাগে না।</p>
             <h2>সংযোগ</h2>
             <div class="badge" id="conn">সার্ভার খোঁজা হচ্ছে…</div>
@@ -365,7 +377,7 @@ jobs:
             <div class="msg" id="lmsg" role="alert"></div>
             <button class="go" id="enter">রেডিও চালু করুন</button>
           </section>
- 
+
           <section id="radio" class="screen">
             <div class="top"><div class="badge">আপনি: <b id="me"></b></div><div class="badge">লাইন: <b id="line">নেই</b></div></div>
             <h2>প্রাইভেট লাইন (একই কোড = একই লাইন)</h2>
@@ -382,14 +394,14 @@ jobs:
             <div class="row" style="margin-top:8px"><input id="ctext" maxlength="500" placeholder="মেসেজ লিখুন"><button class="alt" id="csend">পাঠান</button></div>
             <div class="ptt-wrap"><button id="ptt" disabled>চেপে ধরে কথা বলুন</button><div class="status" id="status">আগে একটি লাইনে ঢুকুন</div></div>
           </section>
- 
+
           <script>
           const $=id=>document.getElementById(id);
           const CALLS=['Alpha','Ace','Bravo','Beta','Charlie','Cobra','Delta','Echo','Foxtrot','Falcon','Golf','Ghost','Hotel','Hawk','India','Ice','Juliet','Jaguar','Kilo','King','Lima','Lion','Mike','Matrix','November','Ninja','Oscar','Omega','Papa','Phoenix','Quebec','Quantum','Romeo','Raven','Sierra','Sigma','Tango','Thunder','Uniform','Ultra','Victor','Viper','Whiskey','Wolf','Xray','Xenon','Yankee','Yoyo','Zulu','Zero'];
           const HAIR=['#2b2d42','#e63946','#4cc9f0','#f9c74f','#9d4edd','#43aa8b','#ff8fab','#e5e5e5'];
           const EYES=['#3a86ff','#e63946','#2a9d8f','#9d4edd'];
           const $=id=>document.getElementById(id);
- 
+
           function avatar(i){
             const h=HAIR[i%8],e=EYES[(i>>3)&3],bg=['#1b2a4a','#3a1c3f','#173a3a','#40301a'][(i>>3)&3];
             const eye=x=>`<ellipse cx="${x}" cy="60" rx="6.5" ry="9" fill="#fff"/><ellipse cx="${x}" cy="62" rx="5" ry="7.5" fill="${e}"/><ellipse cx="${x}" cy="63" rx="2.4" ry="4" fill="#111"/><circle cx="${x-2}" cy="58" r="2" fill="#fff"/>`;
@@ -401,17 +413,17 @@ jobs:
             <ellipse cx="30" cy="73" rx="5" ry="2.5" fill="#ff9ab0" opacity=".6"/><ellipse cx="70" cy="73" rx="5" ry="2.5" fill="#ff9ab0" opacity=".6"/>
             <path d="M44 79Q50 84 56 79" stroke="#b5475f" stroke-width="2" fill="none" stroke-linecap="round"/></svg>`;
           }
- 
- 
+
+
           let base=null,av=0,taken=[],ws=null,myId=null,inLine=false,talking=false,stream=null,ctx=null,proc=null,nextT=0,rx=new Set(),hosting=false;
- 
+
           function drawCalls(){$('calls').innerHTML='';CALLS.forEach(n=>{const b=document.createElement('button');
             b.className='chip'+(taken.some(t=>t.toLowerCase()===n.toLowerCase())?' taken':'');b.textContent=`${n[0]} for ${n}`;
             b.setAttribute('aria-pressed',n===base);b.onclick=()=>{base=n;$('pick').textContent=n;drawCalls();};$('calls').appendChild(b);});}
           function drawAvs(){$('avs').innerHTML='';for(let i=0;i<32;i++){const b=document.createElement('button');b.className='av';b.innerHTML=avatar(i);
             b.setAttribute('aria-label','ছবি '+(i+1));b.setAttribute('aria-pressed',i===av);b.onclick=()=>{av=i;drawAvs();};$('avs').appendChild(b);}}
           drawCalls();drawAvs();
- 
+
           // ---- connection (Wi-Fi only)
           function connect(){
             const a=$('srv').value.trim().replace(/^(wss?|https?):\/\//,'');if(!a)return;
@@ -447,10 +459,10 @@ jobs:
               if(hosting){$('srv').value='127.0.0.1:8765';$('conn').textContent='আপনি হোস্ট'+(ip?' ('+ip+')':' — ওয়াইফাইতে সংযুক্ত নন');$('host').textContent='হোস্ট বন্ধ করুন';setTimeout(connect,900);}
               else{$('host').textContent='এই ফোনকে হোস্ট বানান';findHost();}};}
           findHost();
- 
+
           function drawMembers(list){$('members').innerHTML=list.map(u=>`<div class="mem${u.talking?' talking':''}"><div class="pic">${avatar(u.avatar)}</div>${u.name.replace(/</g,'&lt;')}${u.id===myId?' (আপনি)':''}</div>`).join('');}
           function status(){$('ptt').classList.toggle('rx',rx.size>0);if(inLine)$('status').textContent=rx.size?'কেউ কথা বলছেন…':'স্পেস চেপে ধরেও কথা বলা যায়';}
- 
+
           $('enter').onclick=async()=>{
             $('lmsg').textContent='';
             if(!base)return $('lmsg').textContent='আগে একটি কলসাইন বেছে নিন।';
@@ -466,13 +478,13 @@ jobs:
             const mute=ctx.createGain();mute.gain.value=0;src.connect(proc);proc.connect(mute);mute.connect(ctx.destination);
             ws.send(JSON.stringify({t:'login',base,num:$('num').value,avatar:av}));
           };
- 
+
           function play(buf){if(!ctx)return;const i16=new Int16Array(buf),f=new Float32Array(i16.length);
             for(let i=0;i<f.length;i++)f[i]=i16[i]/32768;
             const ab=ctx.createBuffer(1,f.length,16000);ab.copyToChannel(f,0);const s=ctx.createBufferSource();s.buffer=ab;s.connect(ctx.destination);
             nextT=Math.max(nextT,ctx.currentTime+0.12);s.start(nextT);nextT+=ab.duration;}
           function beep(){if(!ctx)return;const o=ctx.createOscillator(),g=ctx.createGain();o.frequency.value=1000;g.gain.value=.08;o.connect(g);g.connect(ctx.destination);o.start();o.stop(ctx.currentTime+.08);}
- 
+
           function startTalk(){if(talking||$('ptt').disabled||rx.size)return;talking=true;$('ptt').classList.add('tx');$('ptt').textContent='কথা বলছেন…';ws.send(JSON.stringify({t:'ptt',on:true}));}
           function stopTalk(silent){if(!talking)return;talking=false;$('ptt').classList.remove('tx');$('ptt').textContent='চেপে ধরে কথা বলুন';if(!silent)ws.send(JSON.stringify({t:'ptt',on:false}));beep();}
           const p=$('ptt');
@@ -481,14 +493,14 @@ jobs:
           addEventListener('keydown',e=>{if(e.code==='Space'&&!e.repeat&&e.target.tagName!=='INPUT'&&$('radio').classList.contains('on')){e.preventDefault();startTalk();}});
           addEventListener('keyup',e=>{if(e.code==='Space')stopTalk();});
           addEventListener('blur',()=>stopTalk());
- 
+
           $('create').onclick=()=>ws.send(JSON.stringify({t:'create',code:$('code').value}));
           $('join').onclick=()=>ws.send(JSON.stringify({t:'join',code:$('code').value}));
           $('leave').onclick=()=>ws.send(JSON.stringify({t:'leave'}));
           const sendChat=()=>{const t=$('ctext').value.trim();if(t&&inLine&&ws.readyState===1){ws.send(JSON.stringify({t:'chat',text:t}));$('ctext').value='';}};
           $('csend').onclick=sendChat;$('ctext').onkeydown=e=>{if(e.key==='Enter')sendChat();};
           </script></body></html>
-          WALKIE_EOF_8
+          WALKIE_EOF_9
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -506,7 +518,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: apk-${{ github.run_number }}
-          name: Betar APK ${{ github.run_number }}
+          name: Betar Radio APK ${{ github.run_number }}
           files: app/build/outputs/apk/debug/app-debug.apk
- 
-
