@@ -1,0 +1,512 @@
+name: Build APK
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create project files
+        run: |
+          set -e
+          mkdir -p "$(dirname settings.gradle.kts)"
+          cat > settings.gradle.kts <<'WALKIE_EOF_0'
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement { repositories { google(); mavenCentral() } }
+          rootProject.name = "Walkie"
+          include(":app")
+          WALKIE_EOF_0
+          mkdir -p "$(dirname build.gradle.kts)"
+          cat > build.gradle.kts <<'WALKIE_EOF_1'
+          plugins {
+              id("com.android.application") version "8.5.2" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+          }
+          WALKIE_EOF_1
+          mkdir -p "$(dirname gradle.properties)"
+          cat > gradle.properties <<'WALKIE_EOF_2'
+          android.useAndroidX=true
+          org.gradle.jvmargs=-Xmx2g
+          WALKIE_EOF_2
+          mkdir -p "$(dirname app/build.gradle.kts)"
+          cat > app/build.gradle.kts <<'WALKIE_EOF_3'
+          plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }
+          android {
+              namespace = "com.walkie.app"
+              compileSdk = 34
+              defaultConfig { applicationId = "com.walkie.app"; minSdk = 24; targetSdk = 34; versionCode = 1; versionName = "1.0" }
+              buildTypes { release { isMinifyEnabled = false } }
+              compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
+              kotlinOptions { jvmTarget = "17" }
+          }
+          dependencies { implementation("androidx.webkit:webkit:1.11.0"); implementation("androidx.core:core-ktx:1.13.1"); implementation("org.java-websocket:Java-WebSocket:1.5.6") }
+          WALKIE_EOF_3
+          mkdir -p "$(dirname app/src/main/AndroidManifest.xml)"
+          cat > app/src/main/AndroidManifest.xml <<'WALKIE_EOF_4'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET"/>
+              <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
+              <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+              <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
+              <uses-permission android:name="android.permission.WAKE_LOCK"/>
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
+              <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+              <application android:label="বেতার" android:usesCleartextTraffic="true"
+                  android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+                  <activity android:name=".MainActivity" android:exported="true"
+                      android:configChanges="orientation|screenSize|keyboardHidden" android:launchMode="singleTask">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
+                      </intent-filter>
+                  </activity>
+                  <service android:name=".RadioService" android:exported="false" android:foregroundServiceType="microphone"/>
+              </application>
+          </manifest>
+          WALKIE_EOF_4
+          mkdir -p "$(dirname app/src/main/java/com/walkie/app/MainActivity.kt)"
+          cat > app/src/main/java/com/walkie/app/MainActivity.kt <<'WALKIE_EOF_5'
+          package com.walkie.app
+ 
+          import android.Manifest
+          import android.annotation.SuppressLint
+          import android.content.Intent
+          import android.content.pm.PackageManager
+          import android.net.Uri
+          import android.os.Build
+          import android.os.Bundle
+          import android.os.PowerManager
+          import android.provider.Settings
+          import android.webkit.*
+          import android.app.Activity
+          import androidx.webkit.WebViewAssetLoader
+ 
+          class MainActivity : Activity() {
+              private lateinit var web: WebView
+ 
+              @SuppressLint("SetJavaScriptEnabled")
+              override fun onCreate(b: Bundle?) {
+                  super.onCreate(b)
+                  val perms = mutableListOf(Manifest.permission.RECORD_AUDIO)
+                  if (Build.VERSION.SDK_INT >= 33) perms += Manifest.permission.POST_NOTIFICATIONS
+                  requestPermissions(perms.toTypedArray(), 1)
+ 
+                  // serves assets over https://appassets.androidplatform.net so getUserMedia (mic) is allowed
+                  val loader = WebViewAssetLoader.Builder().addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this)).build()
+                  web = WebView(this).apply {
+                      settings.javaScriptEnabled = true
+                      settings.domStorageEnabled = true
+                      settings.mediaPlaybackRequiresUserGesture = false
+                      settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW   // ws:// to local server
+                      webViewClient = object : WebViewClient() {
+                          override fun shouldInterceptRequest(v: WebView, r: WebResourceRequest) = loader.shouldInterceptRequest(r.url)
+                      }
+                      webChromeClient = object : WebChromeClient() {
+                          override fun onPermissionRequest(r: PermissionRequest) = runOnUiThread { r.grant(r.resources) }
+                      }
+                      addJavascriptInterface(Bridge(), "Android")
+                      loadUrl("https://appassets.androidplatform.net/assets/index.html")
+                  }
+                  setContentView(web)
+              }
+ 
+              inner class Bridge {
+                  @Volatile private var foundAddr = ""
+                  /** Finds the host phone on this Wi-Fi by itself, so nobody types an IP. */
+                  @JavascriptInterface fun scan() {
+                      foundAddr = ""; val my = ip(); if (my.isEmpty()) return
+                      val pre = my.substringBeforeLast('.'); val pool = java.util.concurrent.Executors.newFixedThreadPool(64)
+                      for (i in 1..254) pool.execute { if (foundAddr.isEmpty()) try {
+                          java.net.Socket().use { it.connect(java.net.InetSocketAddress("$pre.$i", 8765), 400); foundAddr = "$pre.$i:8765" }
+                      } catch (e: Exception) {} }
+                      pool.shutdown()
+                  }
+                  @JavascriptInterface fun found(): String = foundAddr
+                  @JavascriptInterface fun host(on: Boolean): String {
+                      startForegroundService(Intent(this@MainActivity, RadioService::class.java).putExtra("host", on))
+                      return if (on) ip() else ""
+                  }
+                  @JavascriptInterface fun ip(): String = try {
+                      java.net.NetworkInterface.getNetworkInterfaces().toList().filter { it.isUp && !it.isLoopback }
+                          .flatMap { it.inetAddresses.toList() }.firstOrNull { it is java.net.Inet4Address && it.isSiteLocalAddress }?.hostAddress ?: ""
+                  } catch (e: Exception) { "" }
+              }
+ 
+              override fun onRequestPermissionsResult(c: Int, p: Array<out String>, r: IntArray) {
+                  if (r.isNotEmpty() && r[0] == PackageManager.PERMISSION_GRANTED) {
+                      startForegroundService(Intent(this, RadioService::class.java))   // radio stays alive in background
+                      val pm = getSystemService(POWER_SERVICE) as PowerManager
+                      if (!pm.isIgnoringBatteryOptimizations(packageName))
+                          startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
+                  }
+              }
+ 
+              // NOTE: we deliberately never call web.onPause(), so JS/audio keep running with the screen off.
+              override fun onBackPressed() { moveTaskToBack(true) }
+          }
+          WALKIE_EOF_5
+          mkdir -p "$(dirname app/src/main/java/com/walkie/app/RadioService.kt)"
+          cat > app/src/main/java/com/walkie/app/RadioService.kt <<'WALKIE_EOF_6'
+          package com.walkie.app
+ 
+          import android.app.*
+          import android.content.Context
+          import android.content.Intent
+          import android.content.pm.ServiceInfo
+          import android.net.wifi.WifiManager
+          import android.os.Build
+          import android.os.IBinder
+          import android.os.PowerManager
+ 
+          /** Keeps the process alive (screen off / app in background) while the radio is on. */
+          class RadioService : Service() {
+              private var cpu: PowerManager.WakeLock? = null
+              private var wifi: WifiManager.WifiLock? = null
+ 
+              override fun onCreate() {
+                  super.onCreate()
+                  val nm = getSystemService(NotificationManager::class.java)
+                  if (Build.VERSION.SDK_INT >= 26) nm.createNotificationChannel(NotificationChannel("radio", "রেডিও চালু", NotificationManager.IMPORTANCE_LOW))
+                  val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+                  val n = Notification.Builder(this, "radio")
+                      .setContentTitle("বেতার চালু আছে").setContentText("ব্যাকগ্রাউন্ডে শুনছে")
+                      .setSmallIcon(android.R.drawable.ic_btn_speak_now).setContentIntent(open).setOngoing(true).build()
+                  if (Build.VERSION.SDK_INT >= 29) startForeground(1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE) else startForeground(1, n)
+ 
+                  cpu = (getSystemService(Context.POWER_SERVICE) as PowerManager).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "walkie:cpu").apply { acquire() }
+                  val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+                  val mode = if (Build.VERSION.SDK_INT >= 29) WifiManager.WIFI_MODE_FULL_LOW_LATENCY else WifiManager.WIFI_MODE_FULL_HIGH_PERF
+                  wifi = wm.createWifiLock(mode, "walkie:wifi").apply { acquire() }
+              }
+ 
+              private var host: HostServer? = null
+              override fun onStartCommand(i: Intent?, f: Int, id: Int): Int {
+                  if (i != null && i.hasExtra("host")) {
+                      if (i.getBooleanExtra("host", false)) { if (host == null) host = HostServer(8765).also { it.isReuseAddr = true; it.start() } }
+                      else { try { host?.stop(500) } catch (e: Exception) {}; host = null }
+                  }
+                  return START_STICKY
+              }
+              override fun onBind(i: Intent?): IBinder? = null
+              override fun onDestroy() { try { host?.stop(200) } catch (e: Exception) {}; cpu?.release(); wifi?.release(); super.onDestroy() }
+          }
+          WALKIE_EOF_6
+          mkdir -p "$(dirname app/src/main/java/com/walkie/app/HostServer.kt)"
+          cat > app/src/main/java/com/walkie/app/HostServer.kt <<'WALKIE_EOF_7'
+          package com.walkie.app
+ 
+          import org.java_websocket.WebSocket
+          import org.java_websocket.handshake.ClientHandshake
+          import org.java_websocket.server.WebSocketServer
+          import org.json.JSONArray
+          import org.json.JSONObject
+          import java.net.InetSocketAddress
+          import java.nio.ByteBuffer
+ 
+          /** The same relay as server.js, running inside the phone that is "host". */
+          class HostServer(port: Int) : WebSocketServer(InetSocketAddress(port)) {
+              class C(val id: Int, val name: String, val avatar: Int) { var room: String? = null }
+              class Room { val members = LinkedHashSet<WebSocket>(); var talker: WebSocket? = null }
+ 
+              private val calls = "Alpha Ace Bravo Beta Charlie Cobra Delta Echo Foxtrot Falcon Golf Ghost Hotel Hawk India Ice Juliet Jaguar Kilo King Lima Lion Mike Matrix November Ninja Oscar Omega Papa Phoenix Quebec Quantum Romeo Raven Sierra Sigma Tango Thunder Uniform Ultra Victor Viper Whiskey Wolf Xray Xenon Yankee Yoyo Zulu Zero".split(" ")
+              private val clients = HashMap<WebSocket, C>()
+              private val names = HashMap<String, WebSocket>()
+              private val rooms = HashMap<String, Room>()
+              private var nextId = 1
+ 
+              private fun roomOf(c: C) = c.room?.let { rooms[it] }
+              private fun send(w: WebSocket, o: JSONObject) { if (w.isOpen) w.send(o.toString()) }
+              private fun err(w: WebSocket, m: String) = send(w, JSONObject().put("t", "error").put("msg", m))
+              private fun list(r: Room) = JSONArray().also { a -> r.members.forEach { w -> clients[w]?.let { c ->
+                  a.put(JSONObject().put("id", c.id).put("name", c.name).put("avatar", c.avatar).put("talking", r.talker === w)) } } }
+              private fun pushMembers(r: Room) { val m = JSONObject().put("t", "members").put("list", list(r)); r.members.forEach { send(it, m) } }
+              private fun pushTaken() {
+                  val m = JSONObject().put("t", "taken").put("taken", JSONArray(clients.values.map { it.name }))
+                  connections.forEach { send(it, m) }
+              }
+              private fun release(w: WebSocket) {
+                  val c = clients[w] ?: return; val r = roomOf(c) ?: return
+                  if (r.talker === w) { r.talker = null; pushMembers(r)
+                      val m = JSONObject().put("t", "talk").put("id", c.id).put("on", false); r.members.forEach { send(it, m) } }
+              }
+              private fun leave(w: WebSocket) {
+                  val c = clients[w] ?: return; val key = c.room ?: return
+                  release(w); val r = rooms[key]
+                  if (r != null) { r.members.remove(w); if (r.members.isEmpty() && true) rooms.remove(key) else pushMembers(r) }
+                  c.room = null
+              }
+              private fun enter(w: WebSocket, key: String, priv: Boolean) {
+                  val c = clients[w] ?: return; leave(w)
+                  val r = rooms.getOrPut(key) { Room() }; r.members.add(w); c.room = key
+                  send(w, JSONObject().put("t", "entered").put("room", if (priv) key else JSONObject.NULL).put("you", c.id).put("list", list(r)))
+                  pushMembers(r)
+              }
+ 
+              override fun onOpen(w: WebSocket, h: ClientHandshake) { synchronized(this) { pushTaken() } }
+              override fun onClose(w: WebSocket, code: Int, reason: String?, remote: Boolean) {
+                  synchronized(this) { clients[w]?.let { leave(w); names.remove(it.name.lowercase()); clients.remove(w) }; pushTaken() }
+              }
+              override fun onError(w: WebSocket?, e: Exception) {}
+              override fun onStart() { connectionLostTimeout = 20 }
+ 
+              override fun onMessage(w: WebSocket, data: ByteBuffer) {
+                  synchronized(this) {
+                      val c = clients[w] ?: return; val r = roomOf(c) ?: return
+                      if (r.talker === w) r.members.forEach { if (it !== w && it.isOpen) it.send(data.duplicate()) }
+                  }
+              }
+ 
+              override fun onMessage(w: WebSocket, text: String) { synchronized(this) {
+                  val m = try { JSONObject(text) } catch (e: Exception) { return }
+                  val c = clients[w]
+                  when (m.optString("t")) {
+                      "login" -> if (c == null) {
+                          val base = calls.firstOrNull { it == m.optString("base") } ?: return err(w, "অবৈধ কলসাইন।")
+                          val num = m.optString("num").trim()
+                          if (num.isNotEmpty() && !Regex("\\d{1,4}").matches(num)) return err(w, "নামের পরে শুধু সংখ্যা দেওয়া যাবে (১-৪ অঙ্ক)।")
+                          val name = if (num.isEmpty()) base else "$base-$num"
+                          if (names.containsKey(name.lowercase())) return err(w, "\"$name\" নামটি ইতিমধ্যে আছে। নামের পরে অন্য একটি সংখ্যা দিন (যেমন $base-12)।")
+                          clients[w] = C(nextId++, name, m.optInt("avatar").coerceIn(0, 31)); names[name.lowercase()] = w
+                          send(w, JSONObject().put("t", "welcome").put("name", name)); pushTaken()
+                      }
+                      "leave" -> if (c != null) { leave(w); send(w, JSONObject().put("t", "left")) }
+                      "create", "join" -> if (c != null) {
+                          val code = m.optString("code").trim().take(32)
+                          if (code.length < 3) return err(w, "প্রাইভেট কোড কমপক্ষে ৩ অক্ষরের হতে হবে।")
+                          val key = "p:" + code.lowercase(); val ex = rooms.containsKey(key)
+                          if (m.optString("t") == "create" && ex) return err(w, "এই কোডে লাইন আগে থেকেই আছে। অন্য কোড দিন, অথবা \"যোগ দিন\" চাপুন।")
+                          if (m.optString("t") == "join" && !ex) return err(w, "এই কোডে কোনো লাইন নেই। কোডটি আবার দেখুন।")
+                          enter(w, key, true)
+                      }
+                      "ptt" -> if (c != null) { val r = roomOf(c) ?: return
+                          if (m.optBoolean("on")) {
+                              if (r.talker != null && r.talker !== w) return send(w, JSONObject().put("t", "busy"))
+                              r.talker = w; pushMembers(r)
+                              val o = JSONObject().put("t", "talk").put("id", c.id).put("on", true); r.members.forEach { send(it, o) }
+                          } else release(w) }
+                      "chat" -> if (c != null) { val r = roomOf(c) ?: return
+                          val o = JSONObject().put("t", "chat").put("id", c.id).put("name", c.name).put("text", m.optString("text").take(500))
+                          r.members.forEach { send(it, o) } }
+                  }
+                  Unit
+              } }
+          }
+          WALKIE_EOF_7
+          mkdir -p "$(dirname app/src/main/assets/index.html)"
+          cat > app/src/main/assets/index.html <<'WALKIE_EOF_8'
+          <!DOCTYPE html>
+          <html lang="bn"><head><meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+          <title>বেতার</title>
+          <style>
+          :root{--bg:#121a2b;--panel:#1c2740;--line:#2c3b5e;--text:#eaf0ff;--dim:#8fa0c4;--tx:#ff5c8a;--ok:#7be0d0;--warn:#ffc857}
+          *{box-sizing:border-box}
+          html,body{height:100%;margin:0}
+          body{background:var(--bg);color:var(--text);font:16px/1.5 "Noto Sans Bengali","Hind Siliguri",system-ui,sans-serif;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+          button{font:inherit;color:inherit;cursor:pointer}
+          :focus-visible{outline:3px solid var(--ok);outline-offset:2px}
+          .screen{display:none;max-width:760px;margin:0 auto;padding:20px 16px 40px}
+          .screen.on{display:block}
+          h1{font-size:1.7rem;margin:.2em 0}
+          h2{font-size:1.05rem;margin:1.4em 0 .5em;color:var(--dim);font-weight:600}
+          .chips{display:flex;flex-wrap:wrap;gap:8px}
+          .chip{background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:6px 14px}
+          .chip[aria-pressed=true]{background:var(--ok);color:#06201c;border-color:var(--ok);font-weight:700}
+          .chip.taken{opacity:.55;border-style:dashed}
+          .avs{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:8px}
+          .av{padding:0;border:3px solid transparent;border-radius:16px;overflow:hidden;background:none;aspect-ratio:1}
+          .av[aria-pressed=true]{border-color:var(--tx)}
+          .av svg,.mem svg{width:100%;height:100%;display:block}
+          input{font:inherit;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:12px;padding:10px 12px;width:100%}
+          .row{display:flex;gap:8px;align-items:center}
+          .go{background:var(--tx);border:0;border-radius:14px;padding:12px 22px;font-weight:700;color:#2b0614}
+          .alt{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 16px}
+          .msg{min-height:1.5em;color:var(--warn);margin:10px 0}
+          .top{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+          .badge{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:6px 12px}
+          .badge b{color:var(--ok)}
+          .members{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:10px;margin:14px 0}
+          .mem{text-align:center;font-size:.85rem;word-break:break-all}
+          .mem .pic{width:64px;height:64px;margin:0 auto 4px;border-radius:50%;overflow:hidden;border:3px solid var(--line)}
+          .mem.talking .pic{border-color:var(--tx);box-shadow:0 0 0 6px #ff5c8a44}
+          .ptt-wrap{position:sticky;bottom:12px;text-align:center;padding-top:10px}
+          #ptt{width:min(72vw,230px);aspect-ratio:1;border-radius:50%;border:8px solid var(--line);background:var(--panel);font-size:1.15rem;font-weight:700;touch-action:none;user-select:none;-webkit-user-select:none}
+          #ptt.tx{background:var(--tx);border-color:#ffd0de;color:#2b0614}
+          #ptt.rx{border-color:var(--ok)}
+          #ptt:disabled{opacity:.5}
+          .status{margin-top:10px;color:var(--dim);min-height:1.5em}
+          @media(prefers-reduced-motion:no-preference){#ptt{transition:background .12s,border-color .12s}}
+          </style>
+          </head><body>
+          <section id="login" class="screen on">
+            <h1>বেতার</h1>
+            <p style="color:var(--dim)">একই ওয়াইফাইয়ের সবার সাথে কথা বলুন। লগইন বা টাকা লাগে না।</p>
+            <h2>সংযোগ</h2>
+            <div class="badge" id="conn">সার্ভার খোঁজা হচ্ছে…</div>
+            <div class="row" style="margin-top:8px">
+              <button class="alt" id="rescan">আবার খুঁজুন</button>
+              <button class="alt" id="host" style="display:none">এই ফোনকে হোস্ট বানান</button>
+            </div>
+            <details style="margin-top:8px"><summary style="color:var(--dim)">নিজে ঠিকানা দিন (দরকার হলে)</summary>
+              <input id="srv" placeholder="যেমন 192.168.1.5:8765" autocapitalize="off" autocomplete="off"></details>
+            <h2>কলসাইন (A–Z)</h2>
+            <div class="chips" id="calls"></div>
+            <h2>নাম আগে নেওয়া হয়ে গেলে সংখ্যা যোগ করুন (ঐচ্ছিক)</h2>
+            <div class="row"><span id="pick" class="badge">—</span><input id="num" inputmode="numeric" maxlength="4" placeholder="যেমন 12" style="max-width:130px"></div>
+            <h2>প্রোফাইল ছবি</h2>
+            <div class="avs" id="avs"></div>
+            <div class="msg" id="lmsg" role="alert"></div>
+            <button class="go" id="enter">রেডিও চালু করুন</button>
+          </section>
+ 
+          <section id="radio" class="screen">
+            <div class="top"><div class="badge">আপনি: <b id="me"></b></div><div class="badge">লাইন: <b id="line">নেই</b></div></div>
+            <h2>প্রাইভেট লাইন (একই কোড = একই লাইন)</h2>
+            <input id="code" placeholder="কোড (কমপক্ষে ৩ অক্ষর)" maxlength="32" autocomplete="off">
+            <div class="row" style="margin-top:8px">
+              <button class="alt" id="create">নতুন লাইন বানান</button>
+              <button class="alt" id="join">যোগ দিন</button>
+              <button class="alt" id="leave" style="display:none">লাইন ছাড়ুন</button>
+            </div>
+            <div class="msg" id="rmsg" role="alert"></div>
+            <div class="members" id="members" aria-live="polite"></div>
+            <h2>টেক্সট চ্যাট</h2>
+            <div id="chat" style="max-height:160px;overflow:auto;background:var(--panel);border-radius:12px;padding:8px 12px"></div>
+            <div class="row" style="margin-top:8px"><input id="ctext" maxlength="500" placeholder="মেসেজ লিখুন"><button class="alt" id="csend">পাঠান</button></div>
+            <div class="ptt-wrap"><button id="ptt" disabled>চেপে ধরে কথা বলুন</button><div class="status" id="status">আগে একটি লাইনে ঢুকুন</div></div>
+          </section>
+ 
+          <script>
+          const $=id=>document.getElementById(id);
+          const CALLS=['Alpha','Ace','Bravo','Beta','Charlie','Cobra','Delta','Echo','Foxtrot','Falcon','Golf','Ghost','Hotel','Hawk','India','Ice','Juliet','Jaguar','Kilo','King','Lima','Lion','Mike','Matrix','November','Ninja','Oscar','Omega','Papa','Phoenix','Quebec','Quantum','Romeo','Raven','Sierra','Sigma','Tango','Thunder','Uniform','Ultra','Victor','Viper','Whiskey','Wolf','Xray','Xenon','Yankee','Yoyo','Zulu','Zero'];
+          const HAIR=['#2b2d42','#e63946','#4cc9f0','#f9c74f','#9d4edd','#43aa8b','#ff8fab','#e5e5e5'];
+          const EYES=['#3a86ff','#e63946','#2a9d8f','#9d4edd'];
+          const $=id=>document.getElementById(id);
+ 
+          function avatar(i){
+            const h=HAIR[i%8],e=EYES[(i>>3)&3],bg=['#1b2a4a','#3a1c3f','#173a3a','#40301a'][(i>>3)&3];
+            const eye=x=>`<ellipse cx="${x}" cy="60" rx="6.5" ry="9" fill="#fff"/><ellipse cx="${x}" cy="62" rx="5" ry="7.5" fill="${e}"/><ellipse cx="${x}" cy="63" rx="2.4" ry="4" fill="#111"/><circle cx="${x-2}" cy="58" r="2" fill="#fff"/>`;
+            return `<svg viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" fill="${bg}"/>
+            <path d="M18 58Q12 8 50 7Q88 8 82 58L83 90Q50 98 17 90Z" fill="${h}"/>
+            <ellipse cx="50" cy="60" rx="27" ry="30" fill="#ffe3d1"/>
+            <path d="M22 55Q28 18 50 21Q72 18 78 55Q66 34 50 40Q34 34 22 55Z" fill="${h}"/>
+            ${eye(38)}${eye(62)}
+            <ellipse cx="30" cy="73" rx="5" ry="2.5" fill="#ff9ab0" opacity=".6"/><ellipse cx="70" cy="73" rx="5" ry="2.5" fill="#ff9ab0" opacity=".6"/>
+            <path d="M44 79Q50 84 56 79" stroke="#b5475f" stroke-width="2" fill="none" stroke-linecap="round"/></svg>`;
+          }
+ 
+ 
+          let base=null,av=0,taken=[],ws=null,myId=null,inLine=false,talking=false,stream=null,ctx=null,proc=null,nextT=0,rx=new Set(),hosting=false;
+ 
+          function drawCalls(){$('calls').innerHTML='';CALLS.forEach(n=>{const b=document.createElement('button');
+            b.className='chip'+(taken.some(t=>t.toLowerCase()===n.toLowerCase())?' taken':'');b.textContent=`${n[0]} for ${n}`;
+            b.setAttribute('aria-pressed',n===base);b.onclick=()=>{base=n;$('pick').textContent=n;drawCalls();};$('calls').appendChild(b);});}
+          function drawAvs(){$('avs').innerHTML='';for(let i=0;i<32;i++){const b=document.createElement('button');b.className='av';b.innerHTML=avatar(i);
+            b.setAttribute('aria-label','ছবি '+(i+1));b.setAttribute('aria-pressed',i===av);b.onclick=()=>{av=i;drawAvs();};$('avs').appendChild(b);}}
+          drawCalls();drawAvs();
+ 
+          // ---- connection (Wi-Fi only)
+          function connect(){
+            const a=$('srv').value.trim().replace(/^(wss?|https?):\/\//,'');if(!a)return;
+            if(ws){ws.onclose=null;ws.close();}
+            ws=new WebSocket('ws://'+a);ws.binaryType='arraybuffer';
+            ws.onopen=()=>{$('conn').textContent='সংযুক্ত: '+a;};
+            ws.onmessage=ev=>{
+              if(typeof ev.data!=='string')return play(ev.data);
+              const m=JSON.parse(ev.data);
+              if(m.t==='taken'){taken=m.taken;if($('login').classList.contains('on'))drawCalls();}
+              else if(m.t==='error'){($('login').classList.contains('on')?$('lmsg'):$('rmsg')).textContent=m.msg;}
+              else if(m.t==='welcome'){$('me').textContent=m.name;$('login').classList.remove('on');$('radio').classList.add('on');}
+              else if(m.t==='entered'){myId=m.you;inLine=true;$('chat').innerHTML='';$('line').textContent=m.room.replace(/^p:/,'');$('rmsg').textContent='';
+                $('leave').style.display='';$('ptt').disabled=false;$('status').textContent='স্পেস চেপে ধরেও কথা বলা যায়';drawMembers(m.list);}
+              else if(m.t==='left'){inLine=false;stopTalk();$('line').textContent='নেই';$('leave').style.display='none';$('ptt').disabled=true;$('members').innerHTML='';$('status').textContent='আগে একটি লাইনে ঢুকুন';}
+              else if(m.t==='members')drawMembers(m.list);
+              else if(m.t==='chat'){const d=document.createElement('div');d.textContent=m.name+': '+m.text;$('chat').appendChild(d);$('chat').scrollTop=1e9;}
+              else if(m.t==='talk'){if(m.on&&m.id!==myId)rx.add(m.id);else{rx.delete(m.id);if(!m.on&&m.id!==myId)beep();}status();}
+              else if(m.t==='busy'){$('status').textContent='লাইন ব্যস্ত — অন্যজন কথা বলছেন';stopTalk(true);}
+            };
+            ws.onclose=()=>{$('conn').textContent='সংযোগ বিচ্ছিন্ন';if($('radio').classList.contains('on')){$('status').textContent='সংযোগ কেটে গেছে… আবার খোঁজা হচ্ছে';setTimeout(()=>location.reload(),2500);}};
+          }
+          function findHost(){
+            if(!window.Android){$('srv').value=$('srv').value||location.host;connect();return;}
+            if(hosting)return;$('conn').textContent='সার্ভার খোঁজা হচ্ছে…';Android.scan();let n=0;
+            const t=setInterval(()=>{const f=Android.found();
+              if(f){clearInterval(t);$('srv').value=f;connect();}
+              else if(++n>14){clearInterval(t);$('conn').textContent='সার্ভার পাওয়া যায়নি। একজনকে "হোস্ট" চালু করতে বলুন, তারপর "আবার খুঁজুন" চাপুন।';}},700);
+          }
+          $('rescan').onclick=findHost;$('srv').onchange=connect;
+          if(window.Android){$('host').style.display='';
+            $('host').onclick=()=>{hosting=!hosting;const ip=Android.host(hosting);
+              if(hosting){$('srv').value='127.0.0.1:8765';$('conn').textContent='আপনি হোস্ট'+(ip?' ('+ip+')':' — ওয়াইফাইতে সংযুক্ত নন');$('host').textContent='হোস্ট বন্ধ করুন';setTimeout(connect,900);}
+              else{$('host').textContent='এই ফোনকে হোস্ট বানান';findHost();}};}
+          findHost();
+ 
+          function drawMembers(list){$('members').innerHTML=list.map(u=>`<div class="mem${u.talking?' talking':''}"><div class="pic">${avatar(u.avatar)}</div>${u.name.replace(/</g,'&lt;')}${u.id===myId?' (আপনি)':''}</div>`).join('');}
+          function status(){$('ptt').classList.toggle('rx',rx.size>0);if(inLine)$('status').textContent=rx.size?'কেউ কথা বলছেন…':'স্পেস চেপে ধরেও কথা বলা যায়';}
+ 
+          $('enter').onclick=async()=>{
+            $('lmsg').textContent='';
+            if(!base)return $('lmsg').textContent='আগে একটি কলসাইন বেছে নিন।';
+            if(!ws||ws.readyState!==1)return $('lmsg').textContent='সার্ভারের সাথে সংযোগ হয়নি।';
+            try{stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});}
+            catch(e){return $('lmsg').textContent='মাইক্রোফোনের অনুমতি দিন।';}
+            ctx=new (window.AudioContext||window.webkitAudioContext)();await ctx.resume();
+            const src=ctx.createMediaStreamSource(stream);proc=ctx.createScriptProcessor(4096,1,1);
+            proc.onaudioprocess=e=>{if(!talking||ws.readyState!==1)return;
+              const inp=e.inputBuffer.getChannelData(0),ratio=ctx.sampleRate/16000,n=Math.floor(inp.length/ratio),out=new Int16Array(n);
+              for(let i=0;i<n;i++){const s=Math.max(-1,Math.min(1,inp[Math.floor(i*ratio)]));out[i]=s<0?s*32768:s*32767;}
+              ws.send(out.buffer);};
+            const mute=ctx.createGain();mute.gain.value=0;src.connect(proc);proc.connect(mute);mute.connect(ctx.destination);
+            ws.send(JSON.stringify({t:'login',base,num:$('num').value,avatar:av}));
+          };
+ 
+          function play(buf){if(!ctx)return;const i16=new Int16Array(buf),f=new Float32Array(i16.length);
+            for(let i=0;i<f.length;i++)f[i]=i16[i]/32768;
+            const ab=ctx.createBuffer(1,f.length,16000);ab.copyToChannel(f,0);const s=ctx.createBufferSource();s.buffer=ab;s.connect(ctx.destination);
+            nextT=Math.max(nextT,ctx.currentTime+0.12);s.start(nextT);nextT+=ab.duration;}
+          function beep(){if(!ctx)return;const o=ctx.createOscillator(),g=ctx.createGain();o.frequency.value=1000;g.gain.value=.08;o.connect(g);g.connect(ctx.destination);o.start();o.stop(ctx.currentTime+.08);}
+ 
+          function startTalk(){if(talking||$('ptt').disabled||rx.size)return;talking=true;$('ptt').classList.add('tx');$('ptt').textContent='কথা বলছেন…';ws.send(JSON.stringify({t:'ptt',on:true}));}
+          function stopTalk(silent){if(!talking)return;talking=false;$('ptt').classList.remove('tx');$('ptt').textContent='চেপে ধরে কথা বলুন';if(!silent)ws.send(JSON.stringify({t:'ptt',on:false}));beep();}
+          const p=$('ptt');
+          p.addEventListener('pointerdown',e=>{p.setPointerCapture(e.pointerId);startTalk();});
+          ['pointerup','pointercancel'].forEach(t=>p.addEventListener(t,()=>stopTalk()));
+          addEventListener('keydown',e=>{if(e.code==='Space'&&!e.repeat&&e.target.tagName!=='INPUT'&&$('radio').classList.contains('on')){e.preventDefault();startTalk();}});
+          addEventListener('keyup',e=>{if(e.code==='Space')stopTalk();});
+          addEventListener('blur',()=>stopTalk());
+ 
+          $('create').onclick=()=>ws.send(JSON.stringify({t:'create',code:$('code').value}));
+          $('join').onclick=()=>ws.send(JSON.stringify({t:'join',code:$('code').value}));
+          $('leave').onclick=()=>ws.send(JSON.stringify({t:'leave'}));
+          const sendChat=()=>{const t=$('ctext').value.trim();if(t&&inLine&&ws.readyState===1){ws.send(JSON.stringify({t:'chat',text:t}));$('ctext').value='';}};
+          $('csend').onclick=sendChat;$('ctext').onkeydown=e=>{if(e.key==='Enter')sendChat();};
+          </script></body></html>
+          WALKIE_EOF_8
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.7
+      - name: Build
+        run: gradle assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: betar-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+      - name: Publish download link
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-${{ github.run_number }}
+          name: Betar APK ${{ github.run_number }}
+          files: app/build/outputs/apk/debug/app-debug.apk
+ 
+
