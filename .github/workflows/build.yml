@@ -228,7 +228,7 @@ jobs:
               class C(val id: Int, val name: String, val avatar: Int) { var room: String? = null }
               class Room { val members = LinkedHashSet<WebSocket>(); var talker: WebSocket? = null }
 
-              private val calls = "Alpha Ace Apollo Arrow Atlas Aurora Avalon Axel Bravo Beta Blaze Bolt Bear Breeze Bishop Bandit Charlie Cobra Comet Cyclone Condor Cosmo Crystal Cipher Delta Dragon Dash Dusk Diamond Dingo Drift Dynamo Echo Eagle Ember Eclipse Emerald Everest Equinox Edge Foxtrot Falcon Flash Frost Fury Fox Flare Fusion Golf Ghost Gamma Giant Griffin Galaxy Glacier Gizmo Hotel Hawk Hunter Horizon Harbor Hydra Halo Haze India Ice Iron Indigo Ion Ivy Impulse Inferno Juliet Jaguar Jet Jade Joker Jupiter Jester Jungle Kilo King Kite Karma Kraken Knight Koala Kodiak Lima Lion Lynx Laser Legend Lotus Lunar Lancer Mike Matrix Maverick Mirage Mustang Meteor Magnet Marvel November Ninja Nova Neon Nimbus Nomad Nitro Nebula Oscar Omega Orbit Onyx Orion Oasis Otter Ocean Papa Phoenix Pilot Panther Pixel Pluto Prism Pulse Quebec Quantum Quest Quartz Quasar Quick Quill Quiver Romeo Raven Rocket Ranger Radar Rhino Ridge Rogue Sierra Sigma Shadow Spark Storm Sonic Sphinx Summit Tango Thunder Titan Tiger Turbo Tornado Trident Topaz Uniform Ultra Umbra Unity Uranus Urban Utopia Ursa Victor Viper Vector Vortex Venom Velvet Valor Vega Whiskey Wolf Wizard Wave Warrior Willow Whisper Wraith Xray Xenon Xander Xylo Xeno Xerxes Xavier Xenia Yankee Yoyo Yeti Yarrow Yonder Yukon Yogi Yield Zulu Zero Zephyr Zenith Zebra Zigzag Zodiac Zorro".split(" ")
+              private val calls = "Adrian Aegis Alaric Anton Archer Ares Atlas Aurelio Bishop Blade Boris Bravo Bruno Beckett Bond Baron Cain Carlos Cassian Charlie Cipher Cobra Cole Cyrus Damien Dante Delta Dimitri Dominic Draco Dutch Drake Echo Eclipse Elias Enzo Ethan Evander Ezio Edmund Falcon Felix Fenix Finn Foxtrot Frost Fabian Franco Gabriel Gideon Ghost Goliath Gray Griffin Gunnar Garrett Hades Hawk Hector Hugo Hunter Harlan Hotel Helios Icarus Igor Ivan India Ignis Ironside Isaac Ivo Jackal Jaeger Jasper Jericho Juliet Julian Jett Jagger Kane Kilo Kai Kestrel Knox Kovac Kyle Kronos Lazarus Leon Lima Lucian Lynx Logan Lorenzo Luther Magnus Marcus Maverick Mike Mercury Miles Morgan Maximus Nash Nero Nikolai November Noir Nathan Neo Nomad Orion Oscar Osiris Otto Oberon Onyx Omar Odin Papa Phantom Phoenix Pierce Pablo Prime Python Percival Quentin Quebec Quinn Quasar Quill Quincy Quest Quartz Rafael Raven Rex Romeo Ronin Ryker Roman Rogue Sasha Sierra Silas Spectre Stefan Storm Sterling Sergei Tango Thane Titan Tobias Tristan Tyson Talon Tycho Ulysses Uniform Uriel Ulric Umar Ultra Urban Ugo Victor Vance Valentin Viper Vlad Vector Vincent Vesper Walker Warden Whiskey Wolf Wyatt Wraith Winston Wesley Xander Xavier Xenon Xerxes Xray Xeno Xiang Xylo Yankee Yuri Yago Yusuf Yeager Yorick Yves Yasha Zulu Zane Zeus Zephyr Zorro Zack Zoran Zenith".split(" ")
               private val langCodes = setOf("en", "hi", "bn", "as", "brx", "doi", "gu", "kn", "ks", "kok", "mai", "ml", "mni", "mr", "ne", "or", "pa", "sa", "sat", "sd", "ta", "te", "ur")
               private val clients = HashMap<WebSocket, C>()
               private val names = HashMap<String, WebSocket>()
@@ -287,7 +287,7 @@ jobs:
                           if (num.isNotEmpty() && !Regex("\\d{1,2}").matches(num)) return err(w, "bad_num")
                           val name = if (num.isEmpty()) base else "$base-$num"
                           if (names.containsKey(name.lowercase())) return err(w, "taken", name)
-                          clients[w] = C(nextId++, name, m.optInt("avatar").coerceIn(0, 31)); names[name.lowercase()] = w
+                          clients[w] = C(nextId++, name, m.optInt("avatar").coerceIn(0, 47)); names[name.lowercase()] = w
                           send(w, JSONObject().put("t", "welcome").put("name", name)); pushTaken()
                       }
                       "lang" -> if (c != null) { val lc = m.optString("code"); if (lc in langCodes) enter(w, "l:$lc", true) }
@@ -338,7 +338,7 @@ jobs:
           .grid{display:flex;flex-wrap:wrap;gap:8px}
           .chip{background:#fff7d1;border:2px solid #111;border-radius:999px;padding:5px 13px}
           .chip[aria-pressed=true]{background:#111;color:var(--y)}
-          .tabs{display:flex;gap:6px;overflow-x:auto;padding:2px 0 10px}.tab{flex:none;width:38px;height:38px;border-radius:12px;background:#fff7d1;border:2px solid #111;font-weight:800}.tab[aria-selected=true]{background:#111;color:var(--y)}
+          .tabs{display:flex;flex-wrap:wrap;gap:6px;padding:2px 0 10px}.tab{flex:none;width:38px;height:38px;border-radius:12px;background:#fff7d1;border:2px solid #111;font-weight:800}.tab[aria-selected=true]{background:#111;color:var(--y)}
           .chip.taken{border-style:dashed;opacity:.6}
           .avs{display:grid;grid-template-columns:repeat(auto-fill,minmax(62px,1fr));gap:8px}
           .av{padding:0;aspect-ratio:1;border:4px solid transparent;border-radius:50%;overflow:hidden;background:none}
@@ -363,12 +363,17 @@ jobs:
           #chat{height:34vh;overflow:auto;background:#f6f1de;border-radius:16px;padding:10px 12px;margin:10px 0}
           #chat b{margin-right:4px}
           @media(prefers-reduced-motion:no-preference){#ptt{transition:background .12s}}
+          .strip{display:flex;gap:8px;overflow-x:auto;padding:4px 2px 10px}.sub{font-weight:700;margin-top:6px}
+          .av{flex:none;width:76px;aspect-ratio:5/8;border-radius:16px;overflow:hidden;padding:0;border:4px solid transparent;background:none}
+          .sw{width:38px;height:38px;border-radius:50%;border:3px solid #111}.sw[aria-pressed=true]{box-shadow:0 0 0 3px #fff,0 0 0 6px #111}
+          .sty{background:#111;border:0;display:grid;place-items:center;padding:0}.sty[aria-pressed=true]{background:var(--pink)}.sty svg{width:24px;height:24px}
+          #ptt{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}#pico{width:44px;height:44px;fill:#fff}#ptt.tx #pico{fill:#2b0614}#ptt.rx{outline:0;background:#4d8a0f}
           </style></head><body>
 
           <section id="s-setup" class="scr on">
             <div class="top"><h1>Betar Radio</h1><button class="ib" id="g1" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M4 6h10v2H4zM18 6h2v2h-2zM14 4h4v6h-4zM4 11h2v2H4zM10 11h10v2H10zM6 9h4v6H6zM4 16h10v2H4zM18 16h2v2h-2zM14 14h4v6h-4z"/></svg></button></div>
             <p data-i="tag"></p>
-            <h2 data-i="av"></h2><div class="avs" id="avs"></div>
+            <h2 data-i="av"></h2><div id="avs"></div>
             <h2 data-i="call"></h2><div class="tabs" id="letters" role="tablist"></div><div class="grid" id="calls"></div>
             <div class="row" style="margin-top:12px"><b id="pick">—</b><input id="num" inputmode="numeric" maxlength="2" pattern="[0-9]*" data-ph="num" disabled style="max-width:130px"><small id="nh"></small></div>
             <div class="msg" id="e1" role="alert"></div>
@@ -386,16 +391,20 @@ jobs:
                   <button id="bLeave" aria-label="Leave"><svg viewBox="0 0 24 24"><path d="M11 3h2v10h-2zM7 6.300l1.400 1.400a6 6 0 1 0 7.200 0L17 6.300a8 8 0 1 1-10 0z"/></svg></button>
                 </div></div>
               <div class="grille"></div></div>
-            <button id="ptt" disabled data-i="hold"></button>
+            <button id="ptt" disabled><svg id="pico" viewBox="0 0 24 24"></svg><span id="pl" data-i="hold"></span></button>
           </section>
 
-          <div class="sheet" id="sh-line"><div>
-            <div class="top"><h2 data-i="linet" style="margin:0"></h2><button class="btn alt" data-close data-i="close"></button></div>
-            <input id="code" maxlength="32" autocomplete="off" data-ph="code" style="margin-top:12px">
+
+          <section id="s-lines" class="scr">
+            <div class="top"><div class="row"><span class="m" id="me-av2" style="width:46px;height:46px;border-color:#111"></span><b id="me2"></b></div>
+              <button class="ib" id="g3" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M4 6h10v2H4zM18 6h2v2h-2zM14 4h4v6h-4zM4 11h2v2H4zM10 11h10v2H10zM6 9h4v6H6zM4 16h10v2H4zM18 16h2v2h-2zM14 14h4v6h-4z"/></svg></button></div>
+            <h1 data-i="linet"></h1>
+            <input id="code" maxlength="32" autocomplete="off" data-ph="code">
             <div class="row" style="margin-top:10px"><button class="btn" id="create" data-i="create"></button><button class="btn alt" id="join" style="border:2px solid #111" data-i="join"></button></div>
             <div class="msg" id="e2" role="alert"></div>
             <h2 data-i="ll"></h2><div class="grid" id="llines"></div>
-          </div></div>
+            <div style="margin-top:18px"><button class="btn alt" id="bBack" style="display:none;border:2px solid #111" data-i="back"></button></div>
+          </section>
 
           <div class="sheet" id="sh-chat"><div>
             <div class="top"><h2 data-i="chat" style="margin:0"></h2><button class="btn alt" data-close data-i="close"></button></div>
@@ -407,23 +416,49 @@ jobs:
             <div class="top"><h2 data-i="settings" style="margin:0"></h2><button class="btn alt" data-close data-i="close"></button></div>
             <h2 data-i="lang"></h2><div class="grid" id="langs"></div>
             <div style="margin-top:12px"><button class="btn alt" id="chp" data-i="chp" style="border:2px solid #111"></button></div>
+            <h2 data-i="theme"></h2><div class="grid" id="themes"></div>
+            <h2 data-i="pttstyle"></h2><div class="grid" id="ptts"></div>
             <h2 data-i="conn"></h2><div id="cstat" style="font-weight:700"></div>
             <div class="row" style="margin-top:8px"><button class="btn" id="rescan" data-i="again"></button><button class="btn alt" id="host" style="display:none;border:2px solid #111"></button></div>
             <details style="margin-top:10px"><summary data-i="manual"></summary><input id="srv" placeholder="192.168.1.5:8765" autocapitalize="off"></details>
+            <div style="margin-top:18px"><button class="btn" id="lo" style="background:#b3261e" data-i="logout"></button></div>
           </div></div>
 
           <script>
           const $=id=>document.getElementById(id);
-          const CALLS={"A":["Alpha","Ace","Apollo","Arrow","Atlas","Aurora","Avalon","Axel"],"B":["Bravo","Beta","Blaze","Bolt","Bear","Breeze","Bishop","Bandit"],"C":["Charlie","Cobra","Comet","Cyclone","Condor","Cosmo","Crystal","Cipher"],"D":["Delta","Dragon","Dash","Dusk","Diamond","Dingo","Drift","Dynamo"],"E":["Echo","Eagle","Ember","Eclipse","Emerald","Everest","Equinox","Edge"],"F":["Foxtrot","Falcon","Flash","Frost","Fury","Fox","Flare","Fusion"],"G":["Golf","Ghost","Gamma","Giant","Griffin","Galaxy","Glacier","Gizmo"],"H":["Hotel","Hawk","Hunter","Horizon","Harbor","Hydra","Halo","Haze"],"I":["India","Ice","Iron","Indigo","Ion","Ivy","Impulse","Inferno"],"J":["Juliet","Jaguar","Jet","Jade","Joker","Jupiter","Jester","Jungle"],"K":["Kilo","King","Kite","Karma","Kraken","Knight","Koala","Kodiak"],"L":["Lima","Lion","Lynx","Laser","Legend","Lotus","Lunar","Lancer"],"M":["Mike","Matrix","Maverick","Mirage","Mustang","Meteor","Magnet","Marvel"],"N":["November","Ninja","Nova","Neon","Nimbus","Nomad","Nitro","Nebula"],"O":["Oscar","Omega","Orbit","Onyx","Orion","Oasis","Otter","Ocean"],"P":["Papa","Phoenix","Pilot","Panther","Pixel","Pluto","Prism","Pulse"],"Q":["Quebec","Quantum","Quest","Quartz","Quasar","Quick","Quill","Quiver"],"R":["Romeo","Raven","Rocket","Ranger","Radar","Rhino","Ridge","Rogue"],"S":["Sierra","Sigma","Shadow","Spark","Storm","Sonic","Sphinx","Summit"],"T":["Tango","Thunder","Titan","Tiger","Turbo","Tornado","Trident","Topaz"],"U":["Uniform","Ultra","Umbra","Unity","Uranus","Urban","Utopia","Ursa"],"V":["Victor","Viper","Vector","Vortex","Venom","Velvet","Valor","Vega"],"W":["Whiskey","Wolf","Wizard","Wave","Warrior","Willow","Whisper","Wraith"],"X":["Xray","Xenon","Xander","Xylo","Xeno","Xerxes","Xavier","Xenia"],"Y":["Yankee","Yoyo","Yeti","Yarrow","Yonder","Yukon","Yogi","Yield"],"Z":["Zulu","Zero","Zephyr","Zenith","Zebra","Zigzag","Zodiac","Zorro"]};
-          const HAIR=['#2b2d42','#e63946','#4cc9f0','#f9c74f','#9d4edd','#43aa8b','#ff8fab','#e5e5e5'],EYES=['#3a86ff','#e63946','#2a9d8f','#9d4edd'];
-          function avatar(i){const h=HAIR[i%8],e=EYES[(i>>3)&3],bg=['#1b2a4a','#3a1c3f','#173a3a','#40301a'][(i>>3)&3];
-            const eye=x=>`<ellipse cx="${x}" cy="60" rx="6.5" ry="9" fill="#fff"/><ellipse cx="${x}" cy="62" rx="5" ry="7.5" fill="${e}"/><ellipse cx="${x}" cy="63" rx="2.4" ry="4" fill="#111"/><circle cx="${x-2}" cy="58" r="2" fill="#fff"/>`;
-            return `<svg viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" fill="${bg}"/><path d="M18 58Q12 8 50 7Q88 8 82 58L83 90Q50 98 17 90Z" fill="${h}"/><ellipse cx="50" cy="60" rx="27" ry="30" fill="#ffe3d1"/><path d="M22 55Q28 18 50 21Q72 18 78 55Q66 34 50 40Q34 34 22 55Z" fill="${h}"/>${eye(38)}${eye(62)}<ellipse cx="30" cy="73" rx="5" ry="2.5" fill="#ff9ab0" opacity=".6"/><ellipse cx="70" cy="73" rx="5" ry="2.5" fill="#ff9ab0" opacity=".6"/><path d="M44 79Q50 84 56 79" stroke="#b5475f" stroke-width="2" fill="none" stroke-linecap="round"/></svg>`;}
+          const CALLS={"A":["Adrian","Aegis","Alaric","Anton","Archer","Ares","Atlas","Aurelio"],"B":["Bishop","Blade","Boris","Bravo","Bruno","Beckett","Bond","Baron"],"C":["Cain","Carlos","Cassian","Charlie","Cipher","Cobra","Cole","Cyrus"],"D":["Damien","Dante","Delta","Dimitri","Dominic","Draco","Dutch","Drake"],"E":["Echo","Eclipse","Elias","Enzo","Ethan","Evander","Ezio","Edmund"],"F":["Falcon","Felix","Fenix","Finn","Foxtrot","Frost","Fabian","Franco"],"G":["Gabriel","Gideon","Ghost","Goliath","Gray","Griffin","Gunnar","Garrett"],"H":["Hades","Hawk","Hector","Hugo","Hunter","Harlan","Hotel","Helios"],"I":["Icarus","Igor","Ivan","India","Ignis","Ironside","Isaac","Ivo"],"J":["Jackal","Jaeger","Jasper","Jericho","Juliet","Julian","Jett","Jagger"],"K":["Kane","Kilo","Kai","Kestrel","Knox","Kovac","Kyle","Kronos"],"L":["Lazarus","Leon","Lima","Lucian","Lynx","Logan","Lorenzo","Luther"],"M":["Magnus","Marcus","Maverick","Mike","Mercury","Miles","Morgan","Maximus"],"N":["Nash","Nero","Nikolai","November","Noir","Nathan","Neo","Nomad"],"O":["Orion","Oscar","Osiris","Otto","Oberon","Onyx","Omar","Odin"],"P":["Papa","Phantom","Phoenix","Pierce","Pablo","Prime","Python","Percival"],"Q":["Quentin","Quebec","Quinn","Quasar","Quill","Quincy","Quest","Quartz"],"R":["Rafael","Raven","Rex","Romeo","Ronin","Ryker","Roman","Rogue"],"S":["Sasha","Sierra","Silas","Spectre","Stefan","Storm","Sterling","Sergei"],"T":["Tango","Thane","Titan","Tobias","Tristan","Tyson","Talon","Tycho"],"U":["Ulysses","Uniform","Uriel","Ulric","Umar","Ultra","Urban","Ugo"],"V":["Victor","Vance","Valentin","Viper","Vlad","Vector","Vincent","Vesper"],"W":["Walker","Warden","Whiskey","Wolf","Wyatt","Wraith","Winston","Wesley"],"X":["Xander","Xavier","Xenon","Xerxes","Xray","Xeno","Xiang","Xylo"],"Y":["Yankee","Yuri","Yago","Yusuf","Yeager","Yorick","Yves","Yasha"],"Z":["Zulu","Zane","Zeus","Zephyr","Zorro","Zack","Zoran","Zenith"]};
+          const SK=['#ffe3d1','#f6c9a3','#e0a878','#b9774a','#8a5233'],HC=['#2b2d42','#e63946','#4cc9f0','#f9c74f','#9d4edd','#43aa8b','#ff8fab','#e5e5e5','#6b3f1d','#ff7f11'],EC=['#3a86ff','#e63946','#2a9d8f','#9d4edd','#7a4b1e'],BG=['#cfe8ff','#ffd6e0','#d8f5d0','#fff0b8','#e4d9ff','#ffd9b5'],OC=['#e63946','#3a86ff','#2a9d8f','#9d4edd','#f4a261','#264653','#ff5c8a','#6d597a'];
+          function avatar(i,full){
+            const g=i%2,j=i>>1,st=j%6,bd=j%4,of=(j*3+g)%4,fc=g?[0,1,2,3,4,0][(j+1)%6]:0,gl=j%5===2;
+            const hc=HC[(j*3+g)%10],sk=SK[(j*2+g)%5],ec=EC[(j+g)%5],bg=BG[(i*5)%6],oc=OC[(j*7+g*3)%8],pc=['#264653','#3d405b','#5c4033','#1d3557'][(j+g)%4];
+            const tw=[24,28,38,36][bd],aw=[8,9,12,15][bd],L=50-tw/2,R=50+tw/2,suit=g&&of===3,dress=!g&&of===3,longp=of===2;
+            const top=suit?'#222':(g&&of===1?sk:oc),lw=tw*.42,lx=[50-tw*.23-lw/2,50+tw*.23-lw/2];
+            const back=g?['','','','','<circle cx="50" cy="9" r="8"/>','<circle cx="50" cy="30" r="26"/>'][st]:['<path d="M32 36Q30 10 50 10Q70 10 68 36L72 84Q50 92 28 84Z"/>','<path d="M32 40Q30 12 50 12Q70 12 68 40L68 58Q50 64 32 58Z"/>','<ellipse cx="25" cy="64" rx="7" ry="20"/><ellipse cx="75" cy="64" rx="7" ry="20"/>','<circle cx="50" cy="10" r="9"/>','','<ellipse cx="73" cy="60" rx="8" ry="22"/>'][st];
+            const eye=x=>`<ellipse cx="${x}" cy="40" rx="4.2" ry="5.6" fill="#fff"/><ellipse cx="${x}" cy="41" rx="3.2" ry="4.6" fill="${ec}"/><ellipse cx="${x}" cy="41.5" rx="1.6" ry="2.8" fill="#111"/><circle cx="${x-1.2}" cy="39" r="1.2" fill="#fff"/>`;
+            let s=`<rect width="100" height="160" fill="${bg}"/><g fill="${hc}">${back}</g>`;
+            lx.forEach(x=>{s+=dress?`<rect x="${x}" y="116" width="${lw}" height="32" fill="${sk}"/>`:longp?`<rect x="${x}" y="108" width="${lw}" height="40" fill="${pc}"/>`:`<rect x="${x}" y="108" width="${lw}" height="40" fill="${sk}"/><rect x="${x}" y="108" width="${lw}" height="18" fill="${pc}"/>`;s+=`<rect x="${x-1}" y="146" width="${lw+2}" height="7" rx="3" fill="#222"/>`;});
+            s+=dress?`<path d="M${L} 62H${R}L${R+9} 122H${L-9}Z" fill="${oc}"/>`:`<rect x="${L}" y="60" width="${tw}" height="50" rx="9" fill="${top}"/>`+(bd===2?`<ellipse cx="50" cy="96" rx="${tw/2+3}" ry="15" fill="${top}"/>`:'')+`<rect x="${L}" y="104" width="${tw}" height="10" fill="${pc}"/>`;
+            if(g&&of===1)s+=`<path d="M50 66V104M${L+3} 80Q50 88 ${R-3} 80${bd===3?`M${L+8} 90H${R-8}M${L+8} 98H${R-8}`:''}" stroke="#0003" stroke-width="1.2" fill="none"/>`;
+            if(suit)s+='<path d="M46 62h8l-2 4 3 26-5 6-5-6 3-26z" fill="#c1121f"/>';
+            const sl=dress?10:[18,0,40,40][of];
+            [L-aw+2,R-2].forEach(x=>{s+=`<rect x="${x}" y="62" width="${aw}" height="44" rx="${aw/2}" fill="${sk}"/>`+(sl?`<rect x="${x}" y="62" width="${aw}" height="${sl}" rx="${aw/2}" fill="${suit?'#222':oc}"/>`:'')+`<circle cx="${x+aw/2}" cy="107" r="${aw/2}" fill="${sk}"/>`;});
+            s+=`<rect x="45" y="52" width="10" height="12" fill="${sk}"/><circle cx="34" cy="40" r="3.5" fill="${sk}"/><circle cx="66" cy="40" r="3.5" fill="${sk}"/><ellipse cx="50" cy="38" rx="${bd===2?18:16}" ry="18" fill="${sk}"/>${eye(43)}${eye(57)}<path d="M38 32Q43 29 47 32M53 32Q57 29 62 32" stroke="${hc}" stroke-width="1.6" fill="none"/>`;
+            if(!g||bd===2)s+='<ellipse cx="37" cy="47" rx="4" ry="2.2" fill="#ff9ab0" opacity=".6"/><ellipse cx="63" cy="47" rx="4" ry="2.2" fill="#ff9ab0" opacity=".6"/>';
+            if(!g)s+='<path d="M38 35L36 33M62 35L64 33" stroke="#222" stroke-width="1.2"/>';
+            const must=`<path d="M42 47Q50 43 58 47Q50 49 42 47Z" fill="${hc}"/>`,beard=`<path d="M33 40Q35 62 50 62Q65 62 67 40Q60 53 50 53Q40 53 33 40Z" fill="${hc}"/>`;
+            if(fc===1)s+=must;if(fc===2)s+=beard;if(fc===3)s+=must+`<ellipse cx="50" cy="57" rx="4.5" ry="5" fill="${hc}"/>`;if(fc===4)s+=beard.replace(`fill="${hc}"`,'fill="#222" opacity=".28"');
+            s+='<path d="M46 50Q50 54 54 50" stroke="#b5475f" stroke-width="1.6" fill="none" stroke-linecap="round"/>';
+            const cap='M33 34Q33 14 50 14Q67 14 67 34Q60 26 50 26Q40 26 33 34Z';
+            const fh=g?[cap,'M33 34L35 16L41 23L46 9L51 22L57 10L61 23L67 34Q58 26 50 28Q42 26 33 34Z','M44 24L47 4L53 4L56 24Q50 20 44 24Z','',cap,cap][st]:(st===4?'M33 38Q31 12 50 12Q69 12 67 38L62 27Q50 33 40 22L33 38Z':'M33 36Q34 14 50 14Q66 14 67 36Q58 26 50 30Q42 26 33 36Z');
+            s+=fh?`<path d="${fh}" fill="${hc}"/>`:'<ellipse cx="44" cy="23" rx="5" ry="2.5" fill="#fff" opacity=".4"/>';
+            if(gl)s+='<g fill="none" stroke="#222" stroke-width="1.4"><circle cx="43" cy="40" r="6.5"/><circle cx="57" cy="40" r="6.5"/><path d="M49.5 40h1"/></g>';
+            return `<svg viewBox="${full?'0 0 100 160':'20 4 60 60'}" aria-hidden="true">${s}</svg>`;
+          }
 
           const T={
-          en:{ll:'Language lines — talk in your language',chp:'Change callsign / character',tk:'Taken — add a number, e.g. 2',tag:'Talk with everyone on your Wi-Fi',av:'Choose your character',call:'Choose your callsign',num:'Number (optional)',start:'Start radio',settings:'Settings',lang:'App language',conn:'Connection',search:'Searching for a host…',connected:'Connected',disc:'Disconnected',nohost:'No host found. Ask someone to become host, then search again.',again:'Search again',host:'Become host',unhost:'Stop hosting',manual:'Enter address manually',noline:'No line',online:'online',speaking:'is speaking',linet:'Private line',code:'Line code (min 3 characters)',create:'Create line',join:'Join line',chat:'Chat',send:'Send',msg:'Type a message',hold:'HOLD TO TALK',tx:'TALKING…',busy:'Line is busy',close:'Close',pickfirst:'Choose a callsign first.',mic:'Please allow microphone access.',nocon:'Not connected to a host.',lost:'Connection lost. Reconnecting…',e_bad_call:'Invalid callsign.',e_bad_num:'Only 1–2 digits are allowed after the name.',e_taken:'“{n}” is already taken. Add or change the number, e.g. {b}-2.',e_short:'Line code needs at least 3 characters.',e_exists:'That code already has a line. Use another code or tap Join.',e_nofound:'No line with that code. Check the code.'},
-          bn:{ll:'ভাষার লাইন — নিজের ভাষায় কথা বলুন',chp:'কলসাইন / চরিত্র বদলান',tk:'নাম নেওয়া হয়ে গেছে — সংখ্যা দিন, যেমন ২',tag:'আপনার ওয়াইফাইয়ের সবার সাথে কথা বলুন',av:'আপনার চরিত্র বেছে নিন',call:'আপনার কলসাইন বেছে নিন',num:'নম্বর (ঐচ্ছিক)',start:'রেডিও চালু করুন',settings:'সেটিংস',lang:'অ্যাপের ভাষা',conn:'সংযোগ',search:'হোস্ট খোঁজা হচ্ছে…',connected:'সংযুক্ত',disc:'বিচ্ছিন্ন',nohost:'কোনো হোস্ট পাওয়া যায়নি। কাউকে হোস্ট চালু করতে বলুন, তারপর আবার খুঁজুন।',again:'আবার খুঁজুন',host:'হোস্ট হোন',unhost:'হোস্ট বন্ধ করুন',manual:'নিজে ঠিকানা দিন',noline:'লাইন নেই',online:'জন অনলাইন',speaking:'কথা বলছেন',linet:'প্রাইভেট লাইন',code:'লাইনের কোড (কমপক্ষে ৩ অক্ষর)',create:'লাইন বানান',join:'লাইনে যোগ দিন',chat:'চ্যাট',send:'পাঠান',msg:'মেসেজ লিখুন',hold:'কথা বলতে চেপে ধরুন',tx:'কথা বলছেন…',busy:'লাইন ব্যস্ত',close:'বন্ধ করুন',pickfirst:'আগে একটি কলসাইন বেছে নিন।',mic:'মাইক্রোফোনের অনুমতি দিন।',nocon:'হোস্টের সাথে সংযোগ নেই।',lost:'সংযোগ কেটে গেছে। আবার যুক্ত হচ্ছে…',e_bad_call:'অবৈধ কলসাইন।',e_bad_num:'নামের পরে শুধু ১–২ অঙ্কের সংখ্যা দেওয়া যাবে।',e_taken:'“{n}” নামটি ইতিমধ্যে আছে। সংখ্যা যোগ করুন, যেমন {b}-12।',e_short:'লাইনের কোড কমপক্ষে ৩ অক্ষরের হতে হবে।',e_exists:'এই কোডে লাইন আগে থেকেই আছে। অন্য কোড দিন বা “লাইনে যোগ দিন” চাপুন।',e_nofound:'এই কোডে কোনো লাইন নেই। কোডটি দেখে নিন।'},
-          hi:{ll:'भाषा लाइनें — अपनी भाषा में बात करें',chp:'कॉलसाइन / किरदार बदलें',tk:'नाम लिया जा चुका है — नंबर जोड़ें, जैसे 2',tag:'अपने Wi-Fi पर सबसे बात करें',av:'अपना किरदार चुनें',call:'अपना कॉलसाइन चुनें',num:'नंबर (वैकल्पिक)',start:'रेडियो शुरू करें',settings:'सेटिंग्स',lang:'ऐप की भाषा',conn:'कनेक्शन',search:'होस्ट खोजा जा रहा है…',connected:'जुड़ा हुआ',disc:'डिस्कनेक्टेड',nohost:'कोई होस्ट नहीं मिला। किसी से होस्ट बनने को कहें, फिर दोबारा खोजें।',again:'दोबारा खोजें',host:'होस्ट बनें',unhost:'होस्टिंग बंद करें',manual:'पता खुद दें',noline:'कोई लाइन नहीं',online:'ऑनलाइन',speaking:'बोल रहे हैं',linet:'प्राइवेट लाइन',code:'लाइन कोड (कम से कम 3 अक्षर)',create:'लाइन बनाएँ',join:'लाइन में जुड़ें',chat:'चैट',send:'भेजें',msg:'संदेश लिखें',hold:'बोलने के लिए दबाए रखें',tx:'बोल रहे हैं…',busy:'लाइन व्यस्त है',close:'बंद करें',pickfirst:'पहले कॉलसाइन चुनें।',mic:'कृपया माइक्रोफोन की अनुमति दें।',nocon:'होस्ट से कनेक्शन नहीं है।',lost:'कनेक्शन टूट गया। दोबारा जुड़ रहे हैं…',e_bad_call:'अमान्य कॉलसाइन।',e_bad_num:'नाम के बाद केवल 1–2 अंक दे सकते हैं।',e_taken:'“{n}” पहले से लिया जा चुका है। नंबर जोड़ें, जैसे {b}-12।',e_short:'लाइन कोड कम से कम 3 अक्षर का होना चाहिए।',e_exists:'इस कोड पर लाइन पहले से है। दूसरा कोड दें या “लाइन में जुड़ें” दबाएँ।',e_nofound:'इस कोड पर कोई लाइन नहीं है। कोड जाँचें।'}};
+          en:{back:'Back to radio',logout:'Log out & erase all data',sure:'Tap again to confirm',men:'Men',women:'Women',theme:'Theme color',pttstyle:'Talk button style',ll:'Language lines — talk in your language',chp:'Change callsign / character',tk:'Taken — add a number, e.g. 2',tag:'Talk with everyone on your Wi-Fi',av:'Choose your character',call:'Choose your callsign',num:'Number (optional)',start:'Start radio',settings:'Settings',lang:'App language',conn:'Connection',search:'Searching for a host…',connected:'Connected',disc:'Disconnected',nohost:'No host found. Ask someone to become host, then search again.',again:'Search again',host:'Become host',unhost:'Stop hosting',manual:'Enter address manually',noline:'No line',online:'online',speaking:'is speaking',linet:'Private line',code:'Line code (min 3 characters)',create:'Create line',join:'Join line',chat:'Chat',send:'Send',msg:'Type a message',hold:'HOLD TO TALK',tx:'TALKING…',busy:'Line is busy',close:'Close',pickfirst:'Choose a callsign first.',mic:'Please allow microphone access.',nocon:'Not connected to a host.',lost:'Connection lost. Reconnecting…',e_bad_call:'Invalid callsign.',e_bad_num:'Only 1–2 digits are allowed after the name.',e_taken:'“{n}” is already taken. Add or change the number, e.g. {b}-2.',e_short:'Line code needs at least 3 characters.',e_exists:'That code already has a line. Use another code or tap Join.',e_nofound:'No line with that code. Check the code.'},
+          bn:{back:'রেডিওতে ফিরুন',logout:'লগ আউট (সব তথ্য মুছুন)',sure:'নিশ্চিত করতে আবার চাপুন',men:'পুরুষ',women:'নারী',theme:'থিমের রং',pttstyle:'কথা বলার বাটনের স্টাইল',ll:'ভাষার লাইন — নিজের ভাষায় কথা বলুন',chp:'কলসাইন / চরিত্র বদলান',tk:'নাম নেওয়া হয়ে গেছে — সংখ্যা দিন, যেমন ২',tag:'আপনার ওয়াইফাইয়ের সবার সাথে কথা বলুন',av:'আপনার চরিত্র বেছে নিন',call:'আপনার কলসাইন বেছে নিন',num:'নম্বর (ঐচ্ছিক)',start:'রেডিও চালু করুন',settings:'সেটিংস',lang:'অ্যাপের ভাষা',conn:'সংযোগ',search:'হোস্ট খোঁজা হচ্ছে…',connected:'সংযুক্ত',disc:'বিচ্ছিন্ন',nohost:'কোনো হোস্ট পাওয়া যায়নি। কাউকে হোস্ট চালু করতে বলুন, তারপর আবার খুঁজুন।',again:'আবার খুঁজুন',host:'হোস্ট হোন',unhost:'হোস্ট বন্ধ করুন',manual:'নিজে ঠিকানা দিন',noline:'লাইন নেই',online:'জন অনলাইন',speaking:'কথা বলছেন',linet:'প্রাইভেট লাইন',code:'লাইনের কোড (কমপক্ষে ৩ অক্ষর)',create:'লাইন বানান',join:'লাইনে যোগ দিন',chat:'চ্যাট',send:'পাঠান',msg:'মেসেজ লিখুন',hold:'কথা বলতে চেপে ধরুন',tx:'কথা বলছেন…',busy:'লাইন ব্যস্ত',close:'বন্ধ করুন',pickfirst:'আগে একটি কলসাইন বেছে নিন।',mic:'মাইক্রোফোনের অনুমতি দিন।',nocon:'হোস্টের সাথে সংযোগ নেই।',lost:'সংযোগ কেটে গেছে। আবার যুক্ত হচ্ছে…',e_bad_call:'অবৈধ কলসাইন।',e_bad_num:'নামের পরে শুধু ১–২ অঙ্কের সংখ্যা দেওয়া যাবে।',e_taken:'“{n}” নামটি ইতিমধ্যে আছে। সংখ্যা যোগ করুন, যেমন {b}-12।',e_short:'লাইনের কোড কমপক্ষে ৩ অক্ষরের হতে হবে।',e_exists:'এই কোডে লাইন আগে থেকেই আছে। অন্য কোড দিন বা “লাইনে যোগ দিন” চাপুন।',e_nofound:'এই কোডে কোনো লাইন নেই। কোডটি দেখে নিন।'},
+          hi:{back:'रेडियो पर लौटें',logout:'लॉग आउट (सारा डेटा मिटाएँ)',sure:'पक्का करने के लिए फिर दबाएँ',men:'पुरुष',women:'महिला',theme:'थीम का रंग',pttstyle:'टॉक बटन स्टाइल',ll:'भाषा लाइनें — अपनी भाषा में बात करें',chp:'कॉलसाइन / किरदार बदलें',tk:'नाम लिया जा चुका है — नंबर जोड़ें, जैसे 2',tag:'अपने Wi-Fi पर सबसे बात करें',av:'अपना किरदार चुनें',call:'अपना कॉलसाइन चुनें',num:'नंबर (वैकल्पिक)',start:'रेडियो शुरू करें',settings:'सेटिंग्स',lang:'ऐप की भाषा',conn:'कनेक्शन',search:'होस्ट खोजा जा रहा है…',connected:'जुड़ा हुआ',disc:'डिस्कनेक्टेड',nohost:'कोई होस्ट नहीं मिला। किसी से होस्ट बनने को कहें, फिर दोबारा खोजें।',again:'दोबारा खोजें',host:'होस्ट बनें',unhost:'होस्टिंग बंद करें',manual:'पता खुद दें',noline:'कोई लाइन नहीं',online:'ऑनलाइन',speaking:'बोल रहे हैं',linet:'प्राइवेट लाइन',code:'लाइन कोड (कम से कम 3 अक्षर)',create:'लाइन बनाएँ',join:'लाइन में जुड़ें',chat:'चैट',send:'भेजें',msg:'संदेश लिखें',hold:'बोलने के लिए दबाए रखें',tx:'बोल रहे हैं…',busy:'लाइन व्यस्त है',close:'बंद करें',pickfirst:'पहले कॉलसाइन चुनें।',mic:'कृपया माइक्रोफोन की अनुमति दें।',nocon:'होस्ट से कनेक्शन नहीं है।',lost:'कनेक्शन टूट गया। दोबारा जुड़ रहे हैं…',e_bad_call:'अमान्य कॉलसाइन।',e_bad_num:'नाम के बाद केवल 1–2 अंक दे सकते हैं।',e_taken:'“{n}” पहले से लिया जा चुका है। नंबर जोड़ें, जैसे {b}-12।',e_short:'लाइन कोड कम से कम 3 अक्षर का होना चाहिए।',e_exists:'इस कोड पर लाइन पहले से है। दूसरा कोड दें या “लाइन में जुड़ें” दबाएँ।',e_nofound:'इस कोड पर कोई लाइन नहीं है। कोड जाँचें।'}};
           const LANGS={en:'English',hi:'हिन्दी',bn:'বাংলা',as:'অসমীয়া',brx:'बड़ो',doi:'डोगरी',gu:'ગુજરાતી',kn:'ಕನ್ನಡ',ks:'Kashmiri کٲشُر',kok:'कोंकणी',mai:'मैथिली',ml:'മലയാളം',mni:'Meiteilon ꯃꯩꯇꯩꯂꯣꯟ',mr:'मराठी',ne:'नेपाली',or:'ଓଡ଼ିଆ',pa:'ਪੰਜਾਬੀ',sa:'संस्कृतम्',sat:'Santali ᱥᱟᱱᱛᱟᱲᱤ',sd:'Sindhi سنڌي',ta:'தமிழ்',te:'తెలుగు',ur:'اردو'};
           Object.assign(T,{
           ta:{tag:'உங்கள் Wi-Fi-யில் உள்ள அனைவரிடமும் பேசுங்கள்',av:'உங்கள் கதாபாத்திரத்தைத் தேர்ந்தெடுக்கவும்',call:'உங்கள் அழைப்புப் பெயரைத் தேர்ந்தெடுக்கவும்',num:'எண் (விருப்பம்)',start:'ரேடியோவைத் தொடங்கு',settings:'அமைப்புகள்',lang:'பயன்பாட்டு மொழி',conn:'இணைப்பு',again:'மீண்டும் தேடு',noline:'லைன் இல்லை',online:'ஆன்லைன்',linet:'தனிப்பட்ட லைன்',code:'லைன் குறியீடு (குறைந்தது 3 எழுத்துகள்)',create:'லைன் உருவாக்கு',join:'லைனில் சேர்',chat:'அரட்டை',send:'அனுப்பு',msg:'செய்தியை எழுதுங்கள்',hold:'பேச அழுத்திப் பிடிக்கவும்',tx:'பேசுகிறீர்கள்…',busy:'லைன் பிஸியாக உள்ளது',close:'மூடு',pickfirst:'முதலில் அழைப்புப் பெயரைத் தேர்ந்தெடுக்கவும்.',mic:'மைக்ரோஃபோன் அனுமதியை வழங்கவும்.',speaking:'பேசுகிறார்',tk:'பெயர் எடுக்கப்பட்டுள்ளது — எண்ணைச் சேர்க்கவும், எ.கா. 2',chp:'அழைப்புப் பெயர் / கதாபாத்திரத்தை மாற்று',connected:'இணைக்கப்பட்டது',disc:'துண்டிக்கப்பட்டது',ll:'மொழி லைன்கள் — உங்கள் மொழியில் பேசுங்கள்'},
@@ -444,25 +479,29 @@ jobs:
             $('langs').innerHTML='';Object.keys(LANGS).forEach(k=>{const b=document.createElement('button');b.className='chip';b.textContent=LANGS[k];b.setAttribute('aria-pressed',k===lang);
               b.onclick=()=>{lang=k;try{localStorage.setItem('lang',k);}catch(e){}applyLang();};$('langs').appendChild(b);});
             $('llines').innerHTML='';Object.keys(LANGS).forEach(k=>{const b=document.createElement('button');b.className='chip';b.textContent=LANGS[k];b.onclick=()=>on()&&ws.send(JSON.stringify({t:'lang',code:k}));$('llines').appendChild(b);});
-            drawCalls();lcd();cstat();}
+            drawAvs();drawCalls();lcd();cstat();}
 
-          let letter='A',base=null,av=0,taken=[],ws=null,myId=null,inLine=false,lineName='',members=[],talking=false,stream=null,ctx=null,proc=null,nextT=0,rx=new Set(),hosting=false,searching=false;
+          let letter='A',loggedIn=false,base=null,av=0,taken=[],ws=null,myId=null,inLine=false,lineName='',members=[],talking=false,stream=null,ctx=null,proc=null,nextT=0,rx=new Set(),hosting=false,searching=false;
 
           function isTaken(n){return taken.some(x=>x.toLowerCase()===n.toLowerCase());}
           function drawCalls(){
             $('letters').innerHTML='';Object.keys(CALLS).forEach(L=>{const b=document.createElement('button');b.className='tab';b.textContent=L;b.setAttribute('role','tab');b.setAttribute('aria-selected',L===letter);
               b.onclick=()=>{letter=L;drawCalls();};$('letters').appendChild(b);});
             $('calls').innerHTML='';CALLS[letter].forEach(n=>{const b=document.createElement('button');b.className='chip'+(isTaken(n)?' taken':'');
-              b.textContent=`${letter} for ${n}`+(isTaken(n)?' ✕':'');b.setAttribute('aria-pressed',n===base);
+              b.textContent=n+(isTaken(n)?' ✕':'');b.setAttribute('aria-pressed',n===base);
               b.onclick=()=>{base=n;$('pick').textContent=n;drawCalls();};$('calls').appendChild(b);});
             const need=base&&isTaken(base);$('num').disabled=!need;if(!need)$('num').value='';$('nh').textContent=need?t('tk'):'';
           }
-          function drawAvs(){$('avs').innerHTML='';for(let i=0;i<32;i++){const b=document.createElement('button');b.className='av';b.innerHTML=avatar(i);b.setAttribute('aria-label','Character '+(i+1));
-            b.setAttribute('aria-pressed',i===av);b.onclick=()=>{av=i;drawAvs();};$('avs').appendChild(b);}}
+          function drawAvs(){const box=$('avs');box.innerHTML='';
+            [[1,'men'],[0,'women']].forEach(([g,k])=>{const h=document.createElement('div');h.className='sub';h.textContent=t(k);const row=document.createElement('div');row.className='strip';
+              for(let i=g;i<48;i+=2){const b=document.createElement('button');b.className='av';b.innerHTML=avatar(i,true);b.setAttribute('aria-label','Character '+(i+1));b.setAttribute('aria-pressed',i===av);
+                b.onclick=()=>{av=i;box.querySelectorAll('.av').forEach(x=>x.setAttribute('aria-pressed',x===b));};row.appendChild(b);}
+              box.append(h,row);});}
           const open=id=>$(id).classList.add('on'),shut=()=>document.querySelectorAll('.sheet').forEach(s=>s.classList.remove('on'));
           document.querySelectorAll('[data-close]').forEach(b=>b.onclick=shut);
-          $('g1').onclick=$('g2').onclick=()=>open('sh-set');
-          $('bChat').onclick=()=>open('sh-chat');$('bLine').onclick=()=>open('sh-line');
+          $('g1').onclick=$('g2').onclick=$('g3').onclick=()=>open('sh-set');
+          const show=id=>{document.querySelectorAll('.scr').forEach(x=>x.classList.toggle('on',x.id===id));$('bBack').style.display=(id==='s-lines'&&inLine)?'':'none';scrollTo(0,0);};
+          $('bChat').onclick=()=>open('sh-chat');$('bLine').onclick=()=>show('s-lines');$('bBack').onclick=()=>show('s-home');
           const on=()=>ws&&ws.readyState===1;
           function cstat(){const s=searching?t('search'):on()?t('connected')+' · '+$('srv').value:t('nohost');$('cstat').textContent=s;$('cs1').textContent=on()?'● '+t('connected'):'';}
           function lcd(){$('l1').textContent=on()?t('connected'):t('disc');
@@ -483,15 +522,15 @@ jobs:
               const m=JSON.parse(ev.data);
               if(m.t==='taken'){taken=m.taken;drawCalls();}
               else if(m.t==='error')showErr(errText(m));
-              else if(m.t==='welcome'){$('me').textContent=m.name;$('s-setup').classList.remove('on');$('s-home').classList.add('on');open('sh-line');lcd();}
-              else if(m.t==='entered'){myId=m.you;inLine=true;lineName=m.room.startsWith('l:')?LANGS[m.room.slice(2)]:m.room.replace(/^p:/,'');members=m.list;$('chat').innerHTML='';showErr('');shut();lcd();}
-              else if(m.t==='left'){inLine=false;stopTalk();members=[];lcd();}
+              else if(m.t==='welcome'){$('me').textContent=$('me2').textContent=m.name;loggedIn=true;show('s-lines');lcd();}
+              else if(m.t==='entered'){myId=m.you;inLine=true;lineName=m.room.startsWith('l:')?LANGS[m.room.slice(2)]:m.room.replace(/^p:/,'');members=m.list;$('chat').innerHTML='';showErr('');shut();show('s-home');lcd();}
+              else if(m.t==='left'){inLine=false;stopTalk();members=[];show('s-lines');lcd();}
               else if(m.t==='members'){members=m.list;lcd();}
               else if(m.t==='chat'){const d=document.createElement('div');const b=document.createElement('b');b.textContent=m.name+':';d.append(b,document.createTextNode(m.text));$('chat').appendChild(d);$('chat').scrollTop=1e9;}
               else if(m.t==='talk'){if(m.on&&m.id!==myId)rx.add(m.id);else{rx.delete(m.id);if(!m.on&&m.id!==myId)beep();}lcd();}
               else if(m.t==='busy'){$('l3').textContent=t('busy');stopTalk(true);}
             };
-            ws.onclose=()=>{lcd();cstat();if($('s-home').classList.contains('on')){$('l3').textContent=t('lost');setTimeout(()=>location.reload(),2500);}};
+            ws.onclose=()=>{lcd();cstat();if(loggedIn){$('l3').textContent=t('lost');setTimeout(()=>location.reload(),2500);}};
           }
           function findHost(){
             if(!window.Android){$('srv').value=$('srv').value||location.host;connect();return;}
@@ -514,15 +553,15 @@ jobs:
               for(let i=0;i<n;i++){const s=Math.max(-1,Math.min(1,inp[Math.floor(i*r)]));out[i]=s<0?s*32768:s*32767;}ws.send(out.buffer);};
             const mute=ctx.createGain();mute.gain.value=0;src.connect(proc);proc.connect(mute);mute.connect(ctx.destination);
             try{localStorage.setItem('prof',JSON.stringify({l:letter,b:base,a:av}));}catch(e){}
-            $('me-av').innerHTML=avatar(av);ws.send(JSON.stringify({t:'login',base,num:$('num').value,avatar:av}));};
+            $('me-av').innerHTML=$('me-av2').innerHTML=avatar(av);ws.send(JSON.stringify({t:'login',base,num:$('num').value,avatar:av}));};
 
           function play(buf){if(!ctx)return;const i16=new Int16Array(buf),f=new Float32Array(i16.length);for(let i=0;i<f.length;i++)f[i]=i16[i]/32768;
             const ab=ctx.createBuffer(1,f.length,16000);ab.copyToChannel(f,0);const s=ctx.createBufferSource();s.buffer=ab;s.connect(ctx.destination);
             nextT=Math.max(nextT,ctx.currentTime+0.12);s.start(nextT);nextT+=ab.duration;}
           function beep(){if(!ctx)return;const o=ctx.createOscillator(),g=ctx.createGain();o.frequency.value=1000;g.gain.value=.08;o.connect(g);g.connect(ctx.destination);o.start();o.stop(ctx.currentTime+.08);}
           const p=$('ptt');
-          function startTalk(){if(talking||p.disabled||rx.size)return;talking=true;p.classList.add('tx');p.textContent=t('tx');ws.send(JSON.stringify({t:'ptt',on:true}));}
-          function stopTalk(silent){if(!talking)return;talking=false;p.classList.remove('tx');p.textContent=t('hold');if(!silent&&on())ws.send(JSON.stringify({t:'ptt',on:false}));beep();}
+          function startTalk(){if(talking||p.disabled||rx.size)return;talking=true;p.classList.add('tx');$('pl').textContent=t('tx');ws.send(JSON.stringify({t:'ptt',on:true}));}
+          function stopTalk(silent){if(!talking)return;talking=false;p.classList.remove('tx');$('pl').textContent=t('hold');if(!silent&&on())ws.send(JSON.stringify({t:'ptt',on:false}));beep();}
           p.addEventListener('contextmenu',e=>e.preventDefault());
           p.addEventListener('pointerdown',e=>{p.setPointerCapture(e.pointerId);startTalk();});
           ['pointerup','pointercancel'].forEach(k=>p.addEventListener(k,()=>stopTalk()));
@@ -536,8 +575,24 @@ jobs:
           $('csend').onclick=sendChat;$('ctext').onkeydown=e=>{if(e.key==='Enter')sendChat();};
 
           try{const sv=JSON.parse(localStorage.getItem('prof')||'{}');
-            if(CALLS[sv.l]){letter=sv.l;if(CALLS[sv.l].includes(sv.b)){base=sv.b;$('pick').textContent=base;}}if(sv.a>=0&&sv.a<32)av=sv.a;}catch(e){}
+            if(CALLS[sv.l]){letter=sv.l;if(CALLS[sv.l].includes(sv.b)){base=sv.b;$('pick').textContent=base;}}if(sv.a>=0&&sv.a<48)av=sv.a;}catch(e){}
           $('chp').onclick=()=>location.reload();
+          let loArm=0;$('lo').onclick=()=>{if(!loArm){loArm=1;$('lo').textContent=t('sure');setTimeout(()=>{loArm=0;$('lo').textContent=t('logout');},4000);return;}
+            try{localStorage.clear();}catch(e){}if(window.Android&&hosting)Android.host(false);if(ws){ws.onclose=null;ws.close();}location.reload();};
+          const THEMES=['#ffd32f','#ff9ec4','#7de3b5','#7cc4ff','#ff9f4a','#c3a6ff','#ff7b6b','#eeeeee'];
+          const IC={mic:'M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-3.1A7 7 0 0 0 19 11z',wave:'M12 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM7.8 7.8 6.4 6.4a8 8 0 0 0 0 11.2l1.4-1.4a6 6 0 0 1 0-8.4zm8.4 0a6 6 0 0 1 0 8.4l1.4 1.4a8 8 0 0 0 0-11.2z',bolt:'M13 2 4 14h6l-1 8 9-12h-6z',star:'M12 2l3 7 7 .6-5.3 4.7 1.6 7.2L12 17.8l-6.3 3.7 1.6-7.2L2 9.6 9 9z',head:'M12 3a9 9 0 0 0-9 9v7a2 2 0 0 0 2 2h2v-8H5v-1a7 7 0 0 1 14 0v1h-2v8h2a2 2 0 0 0 2-2v-7a9 9 0 0 0-9-9z',radio:'M9 2h2v4h4a2 2 0 0 1 2 2v13a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V8a2 2 0 0 1 2-2zm1 7v3h4V9z',fire:'M12 2s5 4 5 9a5 5 0 0 1-10 0c0-2 1-3 1-3s1 2 2 2c0-3 2-5 2-8z',spk:'M4 9v6h4l5 4V5L8 9zm12 .5a4.5 4.5 0 0 1 0 5z'};
+          const PS=[{r:'50%',d:IC.mic},{r:'50%',d:IC.wave},{r:'34%',d:IC.bolt},{c:'polygon(25% 5%,75% 5%,100% 50%,75% 95%,25% 95%,0 50%)',d:IC.star},{r:'18% 18% 50% 50%',d:IC.head},{w:210,h:112,r:'60px',d:IC.radio},{c:'polygon(30% 0,70% 0,100% 30%,100% 70%,70% 100%,30% 100%,0 70%,0 30%)',d:IC.fire},{r:'40% 60% 60% 40%/50% 40% 60% 50%',d:IC.spk}];
+          let pstyle=0;
+          function setTheme(c){document.documentElement.style.setProperty('--y',c);try{localStorage.setItem('theme',c);}catch(e){}document.querySelectorAll('.sw').forEach(x=>x.setAttribute('aria-pressed',x.dataset.c===c));}
+          function applyPtt(n){const s=PS[n],e=$('ptt');pstyle=n;e.style.width=(s.w||150)+'px';e.style.height=(s.h||150)+'px';e.style.borderRadius=s.r||'0';e.style.clipPath=s.c||'none';$('pico').innerHTML=`<path d="${s.d}"/>`;
+            document.querySelectorAll('.sty').forEach((x,i)=>x.setAttribute('aria-pressed',i===n));try{localStorage.setItem('pst',n);}catch(e2){}}
+          function buildSettings(){
+            THEMES.forEach(c=>{const b=document.createElement('button');b.className='sw';b.dataset.c=c;b.style.background=c;b.setAttribute('aria-label',c);b.onclick=()=>setTheme(c);$('themes').appendChild(b);});
+            PS.forEach((s,i)=>{const b=document.createElement('button');b.className='sty';b.setAttribute('aria-label','Style '+(i+1));
+              b.style.cssText=`width:${s.w?64:48}px;height:${s.h?36:48}px;border-radius:${s.r||'0'};clip-path:${s.c||'none'}`;
+              b.innerHTML=`<svg viewBox="0 0 24 24"><path d="${s.d}"/></svg>`;b.onclick=()=>applyPtt(i);$('ptts').appendChild(b);});}
+          try{const th=localStorage.getItem('theme'),ps=localStorage.getItem('pst');if(ps!==null&&PS[+ps])pstyle=+ps;if(th)document.documentElement.style.setProperty('--y',th);}catch(e){}
+          buildSettings();setTheme(getComputedStyle(document.documentElement).getPropertyValue('--y').trim()||THEMES[0]);applyPtt(pstyle);
           drawAvs();applyLang();findHost();
           </script></body></html>
           WALKIE_EOF_9
