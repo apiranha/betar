@@ -227,10 +227,24 @@ jobs:
           import java.net.InetSocketAddress
           import java.nio.ByteBuffer
 
-          /** The same relay as server.js, running inside the phone that is "host". */
+          /**
+           * Relay server that runs inside the "host" phone.
+           * - several people can talk at the same time (audio is tagged with the speaker id and mixed on each phone)
+           * - the host phone (loopback connection) can see every user's speaker state and mute/unmute them
+           */
           class HostServer(port: Int) : WebSocketServer(InetSocketAddress(port)) {
-              class C(val id: Int, val name: String, val avatar: Int) { var room: String? = null; var win = 0L; var cnt = 0 }
-              class Room { val members = LinkedHashSet<WebSocket>(); var talker: WebSocket? = null }
+              class C(val id: Int, val name: String, val avatar: Int) {
+                  var room: String? = null
+                  var win = 0L
+                  var cnt = 0
+                  var spk = true
+                  var mm = false
+              }
+
+              class Room {
+                  val members = LinkedHashSet<WebSocket>()
+                  val talkers = HashSet<WebSocket>()
+              }
 
               private val calls = "Adrian Aegis Alaric Anton Archer Ares Atlas Aurelio Bishop Blade Boris Bravo Bruno Beckett Bond Baron Cain Carlos Cassian Charlie Cipher Cobra Cole Cyrus Damien Dante Delta Dimitri Dominic Draco Dutch Drake Echo Eclipse Elias Enzo Ethan Evander Ezio Edmund Falcon Felix Fenix Finn Foxtrot Frost Fabian Franco Gabriel Gideon Ghost Goliath Gray Griffin Gunnar Garrett Hades Hawk Hector Hugo Hunter Harlan Hotel Helios Icarus Igor Ivan India Ignis Ironside Isaac Ivo Jackal Jaeger Jasper Jericho Juliet Julian Jett Jagger Kane Kilo Kai Kestrel Knox Kovac Kyle Kronos Lazarus Leon Lima Lucian Lynx Logan Lorenzo Luther Magnus Marcus Maverick Mike Mercury Miles Morgan Maximus Nash Nero Nikolai November Noir Nathan Neo Nomad Orion Oscar Osiris Otto Oberon Onyx Omar Odin Papa Phantom Phoenix Pierce Pablo Prime Python Percival Quentin Quebec Quinn Quasar Quill Quincy Quest Quartz Rafael Raven Rex Romeo Ronin Ryker Roman Rogue Sasha Sierra Silas Spectre Stefan Storm Sterling Sergei Tango Thane Titan Tobias Tristan Tyson Talon Tycho Ulysses Uniform Uriel Ulric Umar Ultra Urban Ugo Victor Vance Valentin Viper Vlad Vector Vincent Vesper Walker Warden Whiskey Wolf Wyatt Wraith Winston Wesley Xander Xavier Xenon Xerxes Xray Xeno Xiang Xylo Yankee Yuri Yago Yusuf Yeager Yorick Yves Yasha Zulu Zane Zeus Zephyr Zorro Zack Zoran Zenith".split(" ")
               private val langCodes = setOf("en", "hi", "bn", "as", "brx", "doi", "gu", "kn", "ks", "kok", "mai", "ml", "mni", "mr", "ne", "or", "pa", "sa", "sat", "sd", "ta", "te", "ur")
@@ -239,84 +253,210 @@ jobs:
               private val rooms = HashMap<String, Room>()
               private var nextId = 1
 
-              private fun roomOf(c: C) = c.room?.let { rooms[it] }
-              private fun send(w: WebSocket, o: JSONObject) { if (w.isOpen) w.send(o.toString()) }
-              private fun err(w: WebSocket, code: String, name: String = "") = send(w, JSONObject().put("t", "error").put("code", code).put("name", name))
-              private fun list(r: Room) = JSONArray().also { a -> r.members.forEach { w -> clients[w]?.let { c ->
-                  a.put(JSONObject().put("id", c.id).put("name", c.name).put("avatar", c.avatar).put("talking", r.talker === w)) } } }
-              private fun pushMembers(r: Room) { val m = JSONObject().put("t", "members").put("list", list(r)); r.members.forEach { send(it, m) } }
+              private fun roomOf(c: C): Room? = c.room?.let { rooms[it] }
+
+              /** the host phone = a connection coming from this very device (loopback or one of its own addresses) */
+              private fun isHost(w: WebSocket): Boolean = try {
+                  val a = w.remoteSocketAddress?.address
+                  a != null && (a.isLoopbackAddress || java.net.NetworkInterface.getByInetAddress(a) != null)
+              } catch (e: Exception) {
+                  false
+              }
+
+              private fun send(w: WebSocket, o: JSONObject) {
+                  if (w.isOpen) w.send(o.toString())
+              }
+
+              private fun err(w: WebSocket, code: String, name: String = "") =
+                  send(w, JSONObject().put("t", "error").put("code", code).put("name", name))
+
+              private fun list(r: Room): JSONArray {
+                  val a = JSONArray()
+                  for (w in r.members) {
+                      val c = clients[w] ?: continue
+                      a.put(JSONObject().put("id", c.id).put("name", c.name).put("avatar", c.avatar).put("talking", r.talkers.contains(w)))
+                  }
+                  return a
+              }
+
+              private fun pushMembers(r: Room) {
+                  val m = JSONObject().put("t", "members").put("list", list(r))
+                  for (w in r.members) send(w, m)
+              }
+
               private fun pushTaken() {
                   val m = JSONObject().put("t", "taken").put("taken", JSONArray(clients.values.map { it.name }))
-                  connections.forEach { send(it, m) }
+                  for (w in connections) send(w, m)
               }
+
+              private fun pushHost() {
+                  val a = JSONArray()
+                  for (c in clients.values) {
+                      a.put(JSONObject().put("id", c.id).put("name", c.name).put("avatar", c.avatar)
+                          .put("room", c.room ?: "").put("spk", c.spk).put("mm", c.mm))
+                  }
+                  val m = JSONObject().put("t", "hostlist").put("list", a)
+                  for (w in clients.keys) if (isHost(w)) send(w, m)
+              }
+
               private fun release(w: WebSocket) {
-                  val c = clients[w] ?: return; val r = roomOf(c) ?: return
-                  if (r.talker === w) { r.talker = null; pushMembers(r)
-                      val m = JSONObject().put("t", "talk").put("id", c.id).put("on", false); r.members.forEach { send(it, m) } }
+                  val c = clients[w] ?: return
+                  val r = roomOf(c) ?: return
+                  if (r.talkers.remove(w)) {
+                      pushMembers(r)
+                      val m = JSONObject().put("t", "talk").put("id", c.id).put("on", false)
+                      for (x in r.members) send(x, m)
+                  }
               }
+
               private fun leave(w: WebSocket) {
-                  val c = clients[w] ?: return; val key = c.room ?: return
-                  release(w); val r = rooms[key]
-                  if (r != null) { r.members.remove(w); if (r.members.isEmpty()) rooms.remove(key) else pushMembers(r) }
+                  val c = clients[w] ?: return
+                  val key = c.room ?: return
+                  release(w)
+                  val r = rooms[key]
+                  if (r != null) {
+                      r.members.remove(w)
+                      if (r.members.isEmpty()) rooms.remove(key) else pushMembers(r)
+                  }
                   c.room = null
               }
+
               private fun enter(w: WebSocket, key: String, priv: Boolean) {
-                  val c = clients[w] ?: return; leave(w)
-                  val r = rooms.getOrPut(key) { Room() }; r.members.add(w); c.room = key
+                  val c = clients[w] ?: return
+                  leave(w)
+                  val r = rooms.getOrPut(key) { Room() }
+                  r.members.add(w)
+                  c.room = key
                   send(w, JSONObject().put("t", "entered").put("room", if (priv) key else JSONObject.NULL).put("you", c.id).put("list", list(r)))
                   pushMembers(r)
               }
 
-              override fun onOpen(w: WebSocket, h: ClientHandshake) { synchronized(this) { if (connections.size > 100) { w.close(); return }; pushTaken() } }
-              override fun onClose(w: WebSocket, code: Int, reason: String?, remote: Boolean) {
-                  synchronized(this) { clients[w]?.let { leave(w); names.remove(it.name.lowercase()); clients.remove(w) }; pushTaken() }
+              override fun onOpen(w: WebSocket, h: ClientHandshake) {
+                  synchronized(this) {
+                      if (connections.size > 100) {
+                          w.close()
+                          return
+                      }
+                      pushTaken()
+                  }
               }
-              override fun onError(w: WebSocket?, e: Exception) {}
-              override fun onStart() { connectionLostTimeout = 20 }
 
+              override fun onClose(w: WebSocket, code: Int, reason: String?, remote: Boolean) {
+                  synchronized(this) {
+                      val c = clients[w]
+                      if (c != null) {
+                          leave(w)
+                          names.remove(c.name.lowercase())
+                          clients.remove(w)
+                      }
+                      pushTaken()
+                      pushHost()
+                  }
+              }
+
+              override fun onError(w: WebSocket?, e: Exception) {}
+
+              override fun onStart() {
+                  connectionLostTimeout = 20
+              }
+
+              /** voice frame from a talker -> everybody else in the line, prefixed with the speaker id (2 bytes) */
               override fun onMessage(w: WebSocket, data: ByteBuffer) {
                   synchronized(this) {
-                      val c = clients[w] ?: return; val r = roomOf(c) ?: return
-                      if (r.talker === w) r.members.forEach { if (it !== w && it.isOpen) it.send(data.duplicate()) }
+                      val c = clients[w] ?: return
+                      val r = roomOf(c) ?: return
+                      if (!r.talkers.contains(w) || data.remaining() > 16000) return
+                      val out = ByteBuffer.allocate(2 + data.remaining())
+                      out.putShort(c.id.toShort())
+                      out.put(data)
+                      out.flip()
+                      for (x in r.members) if (x !== w && x.isOpen) x.send(out.duplicate())
                   }
               }
 
-              override fun onMessage(w: WebSocket, text: String) { synchronized(this) {
-                  val m = try { JSONObject(text) } catch (e: Exception) { return }
-                  val c = clients[w]
-                  if (c != null) { val now = System.currentTimeMillis(); if (now - c.win > 1000) { c.win = now; c.cnt = 0 }; if (++c.cnt > 25) return }
-                  when (m.optString("t")) {
-                      "login" -> if (c == null) {
-                          val base = calls.firstOrNull { it == m.optString("base") } ?: return err(w, "bad_call")
-                          val num = m.optString("num").trim()
-                          if (num.isNotEmpty() && !Regex("\\d{1,2}").matches(num)) return err(w, "bad_num")
-                          val name = if (num.isEmpty()) base else "$base-$num"
-                          if (names.containsKey(name.lowercase())) return err(w, "taken", name)
-                          clients[w] = C(nextId++, name, m.optInt("avatar").coerceIn(0, 47)); names[name.lowercase()] = w
-                          send(w, JSONObject().put("t", "welcome").put("name", name)); pushTaken()
+              override fun onMessage(w: WebSocket, text: String) {
+                  synchronized(this) {
+                      val m = try {
+                          JSONObject(text)
+                      } catch (e: Exception) {
+                          return
                       }
-                      "lang" -> if (c != null) { val lc = m.optString("code"); if (lc in langCodes) enter(w, "l:$lc", true) }
-                      "leave" -> if (c != null) { leave(w); send(w, JSONObject().put("t", "left")) }
-                      "create", "join" -> if (c != null) {
-                          val code = m.optString("code").trim().take(32)
-                          if (code.length < 3) return err(w, "short")
-                          val key = "p:" + code.lowercase(); val ex = rooms.containsKey(key)
-                          if (m.optString("t") == "create" && ex) return err(w, "exists")
-                          if (m.optString("t") == "join" && !ex) return err(w, "nofound")
-                          enter(w, key, true)
+                      val c = clients[w]
+                      if (c != null) {
+                          val now = System.currentTimeMillis()
+                          if (now - c.win > 1000) {
+                              c.win = now
+                              c.cnt = 0
+                          }
+                          if (++c.cnt > 25) return
                       }
-                      "ptt" -> if (c != null) { val r = roomOf(c) ?: return
-                          if (m.optBoolean("on")) {
-                              if (r.talker != null && r.talker !== w) return send(w, JSONObject().put("t", "busy"))
-                              r.talker = w; pushMembers(r)
-                              val o = JSONObject().put("t", "talk").put("id", c.id).put("on", true); r.members.forEach { send(it, o) }
-                          } else release(w) }
-                      "chat" -> if (c != null) { val r = roomOf(c) ?: return
-                          val o = JSONObject().put("t", "chat").put("id", c.id).put("name", c.name).put("text", m.optString("text").take(500))
-                          r.members.forEach { send(it, o) } }
+                      when (m.optString("t")) {
+                          "login" -> if (c == null) {
+                              val base = calls.firstOrNull { it == m.optString("base") } ?: return err(w, "bad_call")
+                              val num = m.optString("num").trim()
+                              if (num.isNotEmpty() && !Regex("\\d{1,2}").matches(num)) return err(w, "bad_num")
+                              val name = if (num.isEmpty()) base else "$base-$num"
+                              if (names.containsKey(name.lowercase())) return err(w, "taken", name)
+                              clients[w] = C(nextId++, name, m.optInt("avatar").coerceIn(0, 47))
+                              names[name.lowercase()] = w
+                              send(w, JSONObject().put("t", "welcome").put("name", name))
+                              pushTaken()
+                          }
+                          "leave" -> if (c != null) {
+                              leave(w)
+                              send(w, JSONObject().put("t", "left"))
+                          }
+                          "lang" -> if (c != null) {
+                              val lc = m.optString("code")
+                              if (lc in langCodes) enter(w, "l:$lc", true)
+                          }
+                          "create", "join" -> if (c != null) {
+                              val code = m.optString("code").trim().take(32)
+                              if (code.length < 3) return err(w, "short")
+                              val key = "p:" + code.lowercase()
+                              val ex = rooms.containsKey(key)
+                              if (m.optString("t") == "create" && ex) return err(w, "exists")
+                              if (m.optString("t") == "join" && !ex) return err(w, "nofound")
+                              enter(w, key, true)
+                          }
+                          "ptt" -> if (c != null) {
+                              val r = roomOf(c) ?: return
+                              if (m.optBoolean("on")) {
+                                  if (c.mm) return send(w, JSONObject().put("t", "micblock").put("on", true))
+                                  if (r.talkers.add(w)) {
+                                      pushMembers(r)
+                                      val o = JSONObject().put("t", "talk").put("id", c.id).put("on", true)
+                                      for (x in r.members) send(x, o)
+                                  }
+                              } else {
+                                  release(w)
+                              }
+                          }
+                          "chat" -> if (c != null) {
+                              val r = roomOf(c) ?: return
+                              val o = JSONObject().put("t", "chat").put("id", c.id).put("name", c.name).put("text", m.optString("text").take(500))
+                              for (x in r.members) send(x, o)
+                          }
+                          "spk" -> if (c != null) {
+                              c.spk = m.optBoolean("on", true)
+                          }
+                          "hostset" -> if (c != null && isHost(w)) {
+                              val tid = m.optInt("id")
+                              val tw = clients.entries.firstOrNull { it.value.id == tid }?.key
+                              val tc = if (tw != null) clients[tw] else null
+                              if (tw != null && tc != null) {
+                                  if (m.has("spk")) send(tw, JSONObject().put("t", "force").put("spk", m.optBoolean("spk")))
+                                  if (m.has("mm")) {
+                                      tc.mm = m.optBoolean("mm")
+                                      if (tc.mm) release(tw)
+                                      send(tw, JSONObject().put("t", "micblock").put("on", tc.mm))
+                                  }
+                              }
+                          }
+                      }
+                      pushHost()
                   }
-                  Unit
-              } }
+              }
           }
           WALKIE_EOF_8
           mkdir -p "$(dirname app/src/main/assets/index.html)"
@@ -377,10 +517,14 @@ jobs:
           h1{font-weight:800;letter-spacing:-.03em}
           .av{aspect-ratio:auto;overflow:visible;background:#fff7d1;border:3px solid transparent;border-radius:14px;padding:3px 3px 6px;width:84px;display:flex;flex-direction:column;align-items:center}
           .av .pic{display:block;width:100%;aspect-ratio:5/8;overflow:hidden;border-radius:11px}.cn{font-size:12px;font-weight:700;margin-top:4px}
+          .spk{display:grid;place-items:center;margin:18px auto 0;width:120px;height:120px;border-radius:50%;background:#111;box-shadow:0 8px 0 #0003}.spk svg{width:54px;height:54px}.spk[aria-pressed=true]{background:#b3261e}
+          #ptt.blk{opacity:.4}.prof{display:flex;flex-direction:column;align-items:center;gap:8px;margin:18px 0;font-size:1.2rem}.m.big{width:110px;height:110px;border:4px solid #111}
+          .hrow{display:flex;align-items:center;gap:10px;padding:6px 0;border-top:1px solid #0001}.hrow .m{width:40px;height:40px;flex:none;border-color:#111}.hn{flex:1;min-width:0}.hn b,.hn small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+          .hb{width:42px;height:42px;border-radius:50%;background:#111;display:grid;place-items:center;padding:0}.hb svg{width:22px;height:22px}.hb.off{background:#b3261e}
           </style></head><body>
 
           <section id="s-setup" class="scr on">
-            <div class="top"><h1>Betar Radio</h1><button class="ib" id="g1" style="display:none" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M4 6h10v2H4zM18 6h2v2h-2zM14 4h4v6h-4zM4 11h2v2H4zM10 11h10v2H10zM6 9h4v6H6zM4 16h10v2H4zM18 16h2v2h-2zM14 14h4v6h-4z"/></svg></button></div>
+            <div class="top"><h1>Betar Radio</h1></div>
             <p data-i="tag"></p>
             <h2 data-i="av"></h2><div id="avs"></div>
             <h2 data-i="call"></h2><div class="tabs" id="letters" role="tablist"></div><div class="grid" id="calls"></div>
@@ -390,7 +534,7 @@ jobs:
           </section>
 
           <section id="s-home" class="scr">
-            <div class="top"><div class="row"><span class="m" id="me-av" style="width:46px;height:46px;border-color:#111"></span><b id="me"></b></div></div>
+            <div class="top"><div class="row"><span class="m" id="me-av" style="width:46px;height:46px;border-color:#111"></span><b id="me"></b></div><button class="ib" id="g2" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg></button></div>
             <div class="radio"><div class="ant"></div>
               <div class="unit"><div class="lcd"><div id="l1"></div><div id="mems"></div><div id="l3"></div><div id="l2"></div></div>
                 <div class="keys">
@@ -400,12 +544,14 @@ jobs:
                 </div></div>
               <div class="grille"></div></div>
             <button id="ptt" disabled><svg id="pico" viewBox="0 0 24 24"></svg><span id="pl" data-i="hold"></span></button>
+            <button id="spk" class="spk" aria-label="Speaker"></button>
+            <div id="hostpanel" class="card" style="display:none"><h2 data-i="hostctl" style="margin:0 0 8px"></h2><div id="hlist"></div></div>
           </section>
 
 
           <section id="s-lines" class="scr">
             <div class="top"><div class="row"><span class="m" id="me-av2" style="width:46px;height:46px;border-color:#111"></span><b id="me2"></b></div>
-              <button class="ib" id="g3" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M4 6h10v2H4zM18 6h2v2h-2zM14 4h4v6h-4zM4 11h2v2H4zM10 11h10v2H10zM6 9h4v6H6zM4 16h10v2H4zM18 16h2v2h-2zM14 14h4v6h-4z"/></svg></button></div>
+              <button class="ib" id="g3" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg></button></div>
             <div class="card"><h2 data-i="conn" style="margin:0 0 6px"></h2><div id="cstat" style="font-weight:700"></div><div class="row" style="margin-top:8px"><button class="btn" id="rescan" data-i="again"></button><button class="btn alt" id="host" style="display:none;border:2px solid #111"></button></div>
             <details style="margin-top:10px"><summary data-i="manual"></summary><input id="srv" placeholder="192.168.1.5:8765" autocapitalize="off"></details></div>
             <h1 data-i="linet"></h1>
@@ -422,14 +568,14 @@ jobs:
             <div class="row"><input id="ctext" maxlength="500" data-ph="msg" style="flex:1"><button class="btn" id="csend" data-i="send"></button></div>
           </div></div>
 
-          <div class="sheet" id="sh-set"><div>
-            <div class="top"><h2 data-i="settings" style="margin:0"></h2><button class="btn alt" data-close data-i="close"></button></div>
-            <details id="dl" class="card" style="margin:0 0 6px"><summary style="font-weight:700;cursor:pointer"><span data-i="lang"></span>: <b id="curlang"></b></summary><div class="grid" id="langs" style="margin-top:10px"></div></details>
-            <div style="margin-top:12px"><button class="btn alt" id="chp" data-i="chp" style="border:2px solid #111"></button></div>
-            <h2 data-i="theme"></h2><div class="grid" id="themes"></div>
-            <h2 data-i="pttstyle"></h2><div class="grid" id="ptts"></div>
-            <div style="margin-top:18px"><button class="btn" id="lo" style="background:#b3261e" data-i="logout"></button></div>
-          </div></div>
+          <section id="s-set" class="scr">
+            <div class="top"><button class="ib" id="bSetBack" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20z"/></svg></button><h1 data-i="settings" style="margin:0;font-size:1.5rem"></h1><span style="width:46px"></span></div>
+            <div class="prof"><span class="m big" id="me-av3"></span><b id="me3"></b></div>
+            <details id="dl" class="card"><summary style="font-weight:700;cursor:pointer"><span data-i="lang"></span>: <b id="curlang"></b></summary><div class="grid" id="langs" style="margin-top:10px"></div></details>
+            <div class="card"><h2 data-i="theme" style="margin:0 0 10px"></h2><div class="grid" id="themes"></div></div>
+            <div class="card"><h2 data-i="pttstyle" style="margin:0 0 10px"></h2><div class="grid" id="ptts"></div></div>
+            <div class="card"><button class="btn" id="lo" style="background:#b3261e" data-i="logout"></button></div>
+          </section>
 
           <script>
           const $=id=>document.getElementById(id);
@@ -471,9 +617,9 @@ jobs:
           }
 
           const T={
-          en:{back:'Back to radio',logout:'Log out & erase all data',sure:'Tap again to confirm',men:'Men',women:'Women',theme:'Theme color',pttstyle:'Talk button style',ll:'Language lines — talk in your language',chp:'Change callsign / character',tk:'Taken — add a number, e.g. 2',tag:'Talk with everyone on your Wi-Fi',av:'Choose your character',call:'Choose your callsign',num:'Number (optional)',start:'Start radio',settings:'Settings',lang:'App language',conn:'Connection',search:'Searching for a host…',connected:'Connected',disc:'Disconnected',nohost:'No host found. Ask someone to become host, then search again.',again:'Search again',host:'Become host',unhost:'Stop hosting',manual:'Enter address manually',noline:'No line',online:'online',speaking:'is speaking',linet:'Private line',code:'Line code (min 3 characters)',create:'Create line',join:'Join line',chat:'Chat',send:'Send',msg:'Type a message',hold:'HOLD TO TALK',tx:'TALKING…',busy:'Line is busy',close:'Close',pickfirst:'Choose a callsign first.',mic:'Please allow microphone access.',nocon:'Not connected to a host.',lost:'Connection lost. Reconnecting…',e_bad_call:'Invalid callsign.',e_bad_num:'Only 1–2 digits are allowed after the name.',e_taken:'“{n}” is already taken. Add or change the number, e.g. {b}-2.',e_short:'Line code needs at least 3 characters.',e_exists:'That code already has a line. Use another code or tap Join.',e_nofound:'No line with that code. Check the code.'},
-          bn:{back:'রেডিওতে ফিরুন',logout:'লগ আউট (সব তথ্য মুছুন)',sure:'নিশ্চিত করতে আবার চাপুন',men:'পুরুষ',women:'নারী',theme:'থিমের রং',pttstyle:'কথা বলার বাটনের স্টাইল',ll:'ভাষার লাইন — নিজের ভাষায় কথা বলুন',chp:'কলসাইন / চরিত্র বদলান',tk:'নাম নেওয়া হয়ে গেছে — সংখ্যা দিন, যেমন ২',tag:'আপনার ওয়াইফাইয়ের সবার সাথে কথা বলুন',av:'আপনার চরিত্র বেছে নিন',call:'আপনার কলসাইন বেছে নিন',num:'নম্বর (ঐচ্ছিক)',start:'রেডিও চালু করুন',settings:'সেটিংস',lang:'অ্যাপের ভাষা',conn:'সংযোগ',search:'হোস্ট খোঁজা হচ্ছে…',connected:'সংযুক্ত',disc:'বিচ্ছিন্ন',nohost:'কোনো হোস্ট পাওয়া যায়নি। কাউকে হোস্ট চালু করতে বলুন, তারপর আবার খুঁজুন।',again:'আবার খুঁজুন',host:'হোস্ট হোন',unhost:'হোস্ট বন্ধ করুন',manual:'নিজে ঠিকানা দিন',noline:'লাইন নেই',online:'জন অনলাইন',speaking:'কথা বলছেন',linet:'প্রাইভেট লাইন',code:'লাইনের কোড (কমপক্ষে ৩ অক্ষর)',create:'লাইন বানান',join:'লাইনে যোগ দিন',chat:'চ্যাট',send:'পাঠান',msg:'মেসেজ লিখুন',hold:'কথা বলতে চেপে ধরুন',tx:'কথা বলছেন…',busy:'লাইন ব্যস্ত',close:'বন্ধ করুন',pickfirst:'আগে একটি কলসাইন বেছে নিন।',mic:'মাইক্রোফোনের অনুমতি দিন।',nocon:'হোস্টের সাথে সংযোগ নেই।',lost:'সংযোগ কেটে গেছে। আবার যুক্ত হচ্ছে…',e_bad_call:'অবৈধ কলসাইন।',e_bad_num:'নামের পরে শুধু ১–২ অঙ্কের সংখ্যা দেওয়া যাবে।',e_taken:'“{n}” নামটি ইতিমধ্যে আছে। সংখ্যা যোগ করুন, যেমন {b}-12।',e_short:'লাইনের কোড কমপক্ষে ৩ অক্ষরের হতে হবে।',e_exists:'এই কোডে লাইন আগে থেকেই আছে। অন্য কোড দিন বা “লাইনে যোগ দিন” চাপুন।',e_nofound:'এই কোডে কোনো লাইন নেই। কোডটি দেখে নিন।'},
-          hi:{back:'रेडियो पर लौटें',logout:'लॉग आउट (सारा डेटा मिटाएँ)',sure:'पक्का करने के लिए फिर दबाएँ',men:'पुरुष',women:'महिला',theme:'थीम का रंग',pttstyle:'टॉक बटन स्टाइल',ll:'भाषा लाइनें — अपनी भाषा में बात करें',chp:'कॉलसाइन / किरदार बदलें',tk:'नाम लिया जा चुका है — नंबर जोड़ें, जैसे 2',tag:'अपने Wi-Fi पर सबसे बात करें',av:'अपना किरदार चुनें',call:'अपना कॉलसाइन चुनें',num:'नंबर (वैकल्पिक)',start:'रेडियो शुरू करें',settings:'सेटिंग्स',lang:'ऐप की भाषा',conn:'कनेक्शन',search:'होस्ट खोजा जा रहा है…',connected:'जुड़ा हुआ',disc:'डिस्कनेक्टेड',nohost:'कोई होस्ट नहीं मिला। किसी से होस्ट बनने को कहें, फिर दोबारा खोजें।',again:'दोबारा खोजें',host:'होस्ट बनें',unhost:'होस्टिंग बंद करें',manual:'पता खुद दें',noline:'कोई लाइन नहीं',online:'ऑनलाइन',speaking:'बोल रहे हैं',linet:'प्राइवेट लाइन',code:'लाइन कोड (कम से कम 3 अक्षर)',create:'लाइन बनाएँ',join:'लाइन में जुड़ें',chat:'चैट',send:'भेजें',msg:'संदेश लिखें',hold:'बोलने के लिए दबाए रखें',tx:'बोल रहे हैं…',busy:'लाइन व्यस्त है',close:'बंद करें',pickfirst:'पहले कॉलसाइन चुनें।',mic:'कृपया माइक्रोफोन की अनुमति दें।',nocon:'होस्ट से कनेक्शन नहीं है।',lost:'कनेक्शन टूट गया। दोबारा जुड़ रहे हैं…',e_bad_call:'अमान्य कॉलसाइन।',e_bad_num:'नाम के बाद केवल 1–2 अंक दे सकते हैं।',e_taken:'“{n}” पहले से लिया जा चुका है। नंबर जोड़ें, जैसे {b}-12।',e_short:'लाइन कोड कम से कम 3 अक्षर का होना चाहिए।',e_exists:'इस कोड पर लाइन पहले से है। दूसरा कोड दें या “लाइन में जुड़ें” दबाएँ।',e_nofound:'इस कोड पर कोई लाइन नहीं है। कोड जाँचें।'}};
+          en:{hostctl:'Host controls',micoff:'Your mic is muted by the host',hspk:'Speaker',hmic:'Mic',back:'Back to radio',logout:'Log out & erase all data',sure:'Tap again to confirm',men:'Men',women:'Women',theme:'Theme color',pttstyle:'Talk button style',ll:'Language lines — talk in your language',chp:'Change callsign / character',tk:'Taken — add a number, e.g. 2',tag:'Talk with everyone on your Wi-Fi',av:'Choose your character',call:'Choose your callsign',num:'Number (optional)',start:'Start radio',settings:'Settings',lang:'App language',conn:'Connection',search:'Searching for a host…',connected:'Connected',disc:'Disconnected',nohost:'No host found. Ask someone to become host, then search again.',again:'Search again',host:'Become host',unhost:'Stop hosting',manual:'Enter address manually',noline:'No line',online:'online',speaking:'is speaking',linet:'Private line',code:'Line code (min 3 characters)',create:'Create line',join:'Join line',chat:'Chat',send:'Send',msg:'Type a message',hold:'HOLD TO TALK',tx:'TALKING…',busy:'Line is busy',close:'Close',pickfirst:'Choose a callsign first.',mic:'Please allow microphone access.',nocon:'Not connected to a host.',lost:'Connection lost. Reconnecting…',e_bad_call:'Invalid callsign.',e_bad_num:'Only 1–2 digits are allowed after the name.',e_taken:'“{n}” is already taken. Add or change the number, e.g. {b}-2.',e_short:'Line code needs at least 3 characters.',e_exists:'That code already has a line. Use another code or tap Join.',e_nofound:'No line with that code. Check the code.'},
+          bn:{hostctl:'হোস্ট নিয়ন্ত্রণ',micoff:'হোস্ট আপনার মাইক বন্ধ করেছে',hspk:'স্পিকার',hmic:'মাইক',back:'রেডিওতে ফিরুন',logout:'লগ আউট (সব তথ্য মুছুন)',sure:'নিশ্চিত করতে আবার চাপুন',men:'পুরুষ',women:'নারী',theme:'থিমের রং',pttstyle:'কথা বলার বাটনের স্টাইল',ll:'ভাষার লাইন — নিজের ভাষায় কথা বলুন',chp:'কলসাইন / চরিত্র বদলান',tk:'নাম নেওয়া হয়ে গেছে — সংখ্যা দিন, যেমন ২',tag:'আপনার ওয়াইফাইয়ের সবার সাথে কথা বলুন',av:'আপনার চরিত্র বেছে নিন',call:'আপনার কলসাইন বেছে নিন',num:'নম্বর (ঐচ্ছিক)',start:'রেডিও চালু করুন',settings:'সেটিংস',lang:'অ্যাপের ভাষা',conn:'সংযোগ',search:'হোস্ট খোঁজা হচ্ছে…',connected:'সংযুক্ত',disc:'বিচ্ছিন্ন',nohost:'কোনো হোস্ট পাওয়া যায়নি। কাউকে হোস্ট চালু করতে বলুন, তারপর আবার খুঁজুন।',again:'আবার খুঁজুন',host:'হোস্ট হোন',unhost:'হোস্ট বন্ধ করুন',manual:'নিজে ঠিকানা দিন',noline:'লাইন নেই',online:'জন অনলাইন',speaking:'কথা বলছেন',linet:'প্রাইভেট লাইন',code:'লাইনের কোড (কমপক্ষে ৩ অক্ষর)',create:'লাইন বানান',join:'লাইনে যোগ দিন',chat:'চ্যাট',send:'পাঠান',msg:'মেসেজ লিখুন',hold:'কথা বলতে চেপে ধরুন',tx:'কথা বলছেন…',busy:'লাইন ব্যস্ত',close:'বন্ধ করুন',pickfirst:'আগে একটি কলসাইন বেছে নিন।',mic:'মাইক্রোফোনের অনুমতি দিন।',nocon:'হোস্টের সাথে সংযোগ নেই।',lost:'সংযোগ কেটে গেছে। আবার যুক্ত হচ্ছে…',e_bad_call:'অবৈধ কলসাইন।',e_bad_num:'নামের পরে শুধু ১–২ অঙ্কের সংখ্যা দেওয়া যাবে।',e_taken:'“{n}” নামটি ইতিমধ্যে আছে। সংখ্যা যোগ করুন, যেমন {b}-12।',e_short:'লাইনের কোড কমপক্ষে ৩ অক্ষরের হতে হবে।',e_exists:'এই কোডে লাইন আগে থেকেই আছে। অন্য কোড দিন বা “লাইনে যোগ দিন” চাপুন।',e_nofound:'এই কোডে কোনো লাইন নেই। কোডটি দেখে নিন।'},
+          hi:{hostctl:'होस्ट नियंत्रण',micoff:'होस्ट ने आपका माइक बंद किया है',hspk:'स्पीकर',hmic:'माइक',back:'रेडियो पर लौटें',logout:'लॉग आउट (सारा डेटा मिटाएँ)',sure:'पक्का करने के लिए फिर दबाएँ',men:'पुरुष',women:'महिला',theme:'थीम का रंग',pttstyle:'टॉक बटन स्टाइल',ll:'भाषा लाइनें — अपनी भाषा में बात करें',chp:'कॉलसाइन / किरदार बदलें',tk:'नाम लिया जा चुका है — नंबर जोड़ें, जैसे 2',tag:'अपने Wi-Fi पर सबसे बात करें',av:'अपना किरदार चुनें',call:'अपना कॉलसाइन चुनें',num:'नंबर (वैकल्पिक)',start:'रेडियो शुरू करें',settings:'सेटिंग्स',lang:'ऐप की भाषा',conn:'कनेक्शन',search:'होस्ट खोजा जा रहा है…',connected:'जुड़ा हुआ',disc:'डिस्कनेक्टेड',nohost:'कोई होस्ट नहीं मिला। किसी से होस्ट बनने को कहें, फिर दोबारा खोजें।',again:'दोबारा खोजें',host:'होस्ट बनें',unhost:'होस्टिंग बंद करें',manual:'पता खुद दें',noline:'कोई लाइन नहीं',online:'ऑनलाइन',speaking:'बोल रहे हैं',linet:'प्राइवेट लाइन',code:'लाइन कोड (कम से कम 3 अक्षर)',create:'लाइन बनाएँ',join:'लाइन में जुड़ें',chat:'चैट',send:'भेजें',msg:'संदेश लिखें',hold:'बोलने के लिए दबाए रखें',tx:'बोल रहे हैं…',busy:'लाइन व्यस्त है',close:'बंद करें',pickfirst:'पहले कॉलसाइन चुनें।',mic:'कृपया माइक्रोफोन की अनुमति दें।',nocon:'होस्ट से कनेक्शन नहीं है।',lost:'कनेक्शन टूट गया। दोबारा जुड़ रहे हैं…',e_bad_call:'अमान्य कॉलसाइन।',e_bad_num:'नाम के बाद केवल 1–2 अंक दे सकते हैं।',e_taken:'“{n}” पहले से लिया जा चुका है। नंबर जोड़ें, जैसे {b}-12।',e_short:'लाइन कोड कम से कम 3 अक्षर का होना चाहिए।',e_exists:'इस कोड पर लाइन पहले से है। दूसरा कोड दें या “लाइन में जुड़ें” दबाएँ।',e_nofound:'इस कोड पर कोई लाइन नहीं है। कोड जाँचें।'}};
           const LANGS={en:'English',hi:'हिन्दी',bn:'বাংলা',as:'অসমীয়া',brx:'बड़ो',doi:'डोगरी',gu:'ગુજરાતી',kn:'ಕನ್ನಡ',ks:'Kashmiri کٲشُر',kok:'कोंकणी',mai:'मैथिली',ml:'മലയാളം',mni:'Meiteilon ꯃꯩꯇꯩꯂꯣꯟ',mr:'मराठी',ne:'नेपाली',or:'ଓଡ଼ିଆ',pa:'ਪੰਜਾਬੀ',sa:'संस्कृतम्',sat:'Santali ᱥᱟᱱᱛᱟᱲᱤ',sd:'Sindhi سنڌي',ta:'தமிழ்',te:'తెలుగు',ur:'اردو'};
           Object.assign(T,{
           ta:{tag:'உங்கள் Wi-Fi-யில் உள்ள அனைவரிடமும் பேசுங்கள்',av:'உங்கள் கதாபாத்திரத்தைத் தேர்ந்தெடுக்கவும்',call:'உங்கள் அழைப்புப் பெயரைத் தேர்ந்தெடுக்கவும்',num:'எண் (விருப்பம்)',start:'ரேடியோவைத் தொடங்கு',settings:'அமைப்புகள்',lang:'பயன்பாட்டு மொழி',conn:'இணைப்பு',again:'மீண்டும் தேடு',noline:'லைன் இல்லை',online:'ஆன்லைன்',linet:'தனிப்பட்ட லைன்',code:'லைன் குறியீடு (குறைந்தது 3 எழுத்துகள்)',create:'லைன் உருவாக்கு',join:'லைனில் சேர்',chat:'அரட்டை',send:'அனுப்பு',msg:'செய்தியை எழுதுங்கள்',hold:'பேச அழுத்திப் பிடிக்கவும்',tx:'பேசுகிறீர்கள்…',busy:'லைன் பிஸியாக உள்ளது',close:'மூடு',pickfirst:'முதலில் அழைப்புப் பெயரைத் தேர்ந்தெடுக்கவும்.',mic:'மைக்ரோஃபோன் அனுமதியை வழங்கவும்.',speaking:'பேசுகிறார்',tk:'பெயர் எடுக்கப்பட்டுள்ளது — எண்ணைச் சேர்க்கவும், எ.கா. 2',chp:'அழைப்புப் பெயர் / கதாபாத்திரத்தை மாற்று',connected:'இணைக்கப்பட்டது',disc:'துண்டிக்கப்பட்டது',ll:'மொழி லைன்கள் — உங்கள் மொழியில் பேசுங்கள்'},
@@ -496,7 +642,7 @@ jobs:
             $('llines').innerHTML='';Object.keys(LANGS).forEach(k=>{const b=document.createElement('button');b.className='chip';b.textContent=LANGS[k];b.onclick=()=>ok2()&&ws.send(JSON.stringify({t:'lang',code:k}));$('llines').appendChild(b);});
             drawAvs();drawCalls();lcd();cstat();}
 
-          let letter='A',loggedIn=false,profileReady=false,base=null,av=0,taken=[],ws=null,myId=null,inLine=false,lineName='',members=[],talking=false,stream=null,ctx=null,proc=null,nextT=0,rx=new Set(),hosting=false,searching=false;
+          let letter='A',loggedIn=false,profileReady=false,profNum='',spkOn=true,micBlocked=false,isHostUI=false,cur='s-setup',prevScr='s-lines',base=null,av=0,taken=[],ws=null,myId=null,inLine=false,lineName='',members=[],talking=false,stream=null,ctx=null,proc=null,nextT=0,rx=new Set(),hosting=false,searching=false;
 
           function isTaken(n){return taken.some(x=>x.toLowerCase()===n.toLowerCase());}
           function drawCalls(){
@@ -514,14 +660,14 @@ jobs:
               box.append(h,row);});}
           const open=id=>$(id).classList.add('on'),shut=()=>document.querySelectorAll('.sheet').forEach(s=>s.classList.remove('on'));
           document.querySelectorAll('[data-close]').forEach(b=>b.onclick=shut);
-          $('g3').onclick=()=>open('sh-set');
-          const show=id=>{document.querySelectorAll('.scr').forEach(x=>x.classList.toggle('on',x.id===id));$('bBack').style.display=(id==='s-lines'&&inLine)?'':'none';scrollTo(0,0);};
+          $('g2').onclick=$('g3').onclick=()=>{prevScr=cur;show('s-set');};$('bSetBack').onclick=()=>show(prevScr);
+          const show=id=>{cur=id;document.querySelectorAll('.scr').forEach(x=>x.classList.toggle('on',x.id===id));$('bBack').style.display=(id==='s-lines'&&inLine)?'':'none';scrollTo(0,0);};
           $('bChat').onclick=()=>open('sh-chat');$('bLine').onclick=()=>show('s-lines');$('bBack').onclick=()=>show('s-home');
           const on=()=>ws&&ws.readyState===1;
           function cstat(){const s=searching?t('search'):on()?t('connected')+' · '+$('srv').value:t('nohost');$('cstat').textContent=s;}
           function lcd(){$('l1').textContent=on()?t('connected'):t('disc');
             $('l2').textContent=inLine?'# '+lineName:t('noline');
-            const who=members.find(u=>rx.has(u.id));$('l3').textContent=who?who.name+' '+t('speaking'):(inLine?members.length+' '+t('online'):'');
+            const who=members.filter(u=>rx.has(u.id));$('l3').textContent=micBlocked?t('micoff'):who.length?who.slice(0,2).map(u=>u.name).join(', ')+(who.length>2?' +'+(who.length-2):'')+' '+t('speaking'):(inLine?members.length+' '+t('online'):'');
             $('mems').innerHTML=members.slice(0,7).map(u=>`<span class="m${u.talking?' tk':''}">${avatar(u.avatar)}</span>`).join('');
             $('ptt').classList.toggle('rx',rx.size>0);$('ptt').disabled=!inLine;}
           function showErr(m){$('e1').textContent=$('e2').textContent=m||'';}
@@ -536,13 +682,16 @@ jobs:
               if(typeof ev.data!=='string')return play(ev.data);
               const m=JSON.parse(ev.data);
               if(m.t==='taken'){taken=m.taken;drawCalls();}
-              else if(m.t==='error'){if(profileReady&&!loggedIn){profileReady=false;show('s-setup');}showErr(errText(m));}
-              else if(m.t==='welcome'){$('me').textContent=$('me2').textContent=m.name;loggedIn=true;cstat();lcd();}
+              else if(m.t==='error'){if(profileReady&&!loggedIn){profileReady=false;try{localStorage.removeItem('prof');}catch(e){}show('s-setup');}showErr(errText(m));}
+              else if(m.t==='welcome'){$('me').textContent=$('me2').textContent=$('me3').textContent=m.name;loggedIn=true;try{localStorage.setItem('prof',JSON.stringify({l:letter,b:base,n:profNum,a:av}));}catch(e){}ws.send(JSON.stringify({t:'spk',on:spkOn}));cstat();lcd();}
               else if(m.t==='entered'){myId=m.you;inLine=true;lineName=m.room.startsWith('l:')?LANGS[m.room.slice(2)]:m.room.replace(/^p:/,'');members=m.list;$('chat').innerHTML='';showErr('');shut();show('s-home');lcd();}
               else if(m.t==='left'){inLine=false;stopTalk();members=[];show('s-lines');lcd();}
               else if(m.t==='members'){members=m.list;lcd();}
               else if(m.t==='chat'){const d=document.createElement('div');const b=document.createElement('b');b.textContent=m.name+':';d.append(b,document.createTextNode(m.text));$('chat').appendChild(d);$('chat').scrollTop=1e9;}
               else if(m.t==='talk'){if(m.on&&m.id!==myId)rx.add(m.id);else{rx.delete(m.id);if(!m.on&&m.id!==myId)beep();}lcd();}
+              else if(m.t==='force')setSpk(!!m.spk,true);
+              else if(m.t==='micblock'){micBlocked=!!m.on;if(m.on)stopTalk();$('ptt').classList.toggle('blk',micBlocked);lcd();}
+              else if(m.t==='hostlist')hostList(m.list);
               else if(m.t==='busy'){$('l3').textContent=t('busy');stopTalk(true);}
             };
             ws.onclose=()=>{lcd();cstat();if(loggedIn){$('l3').textContent=t('lost');setTimeout(()=>location.reload(),2500);}};
@@ -559,28 +708,38 @@ jobs:
               if(hosting){$('srv').value='127.0.0.1:8765';$('cstat').textContent=t('connected')+(ip?' · '+ip+':8765':'');setTimeout(connect,900);}
               else findHost();$('host').textContent=t(hosting?'unhost':'host');};}
 
-          $('start').onclick=async()=>{
-            showErr('');if(base&&isTaken(base)&&!$('num').value.trim())return showErr(t('e_taken').replace('{n}',base).replace('{b}',base));if(!base)return showErr(t('pickfirst'));
-            try{stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});}catch(e){return showErr(t('mic'));}
-            ctx=new (window.AudioContext||window.webkitAudioContext)();await ctx.resume();
+          async function initAudio(){
+            if(ctx)return true;
+            try{stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});}catch(e){return false;}
+            ctx=new (window.AudioContext||window.webkitAudioContext)();try{await ctx.resume();}catch(e){}
             const src=ctx.createMediaStreamSource(stream);proc=ctx.createScriptProcessor(4096,1,1);
             proc.onaudioprocess=e=>{if(!talking||!on())return;const inp=e.inputBuffer.getChannelData(0),r=ctx.sampleRate/16000,n=Math.floor(inp.length/r),out=new Int16Array(n);
               for(let i=0;i<n;i++){const s=Math.max(-1,Math.min(1,inp[Math.floor(i*r)]));out[i]=s<0?s*32768:s*32767;}ws.send(out.buffer);};
             const mute=ctx.createGain();mute.gain.value=0;src.connect(proc);proc.connect(mute);mute.connect(ctx.destination);
-            try{localStorage.setItem('prof',JSON.stringify({l:letter,b:base,a:av}));}catch(e){}
-            $('me-av').innerHTML=$('me-av2').innerHTML=avatar(av);profileReady=true;$('me').textContent=$('me2').textContent=base+($('num').value.trim()?'-'+$('num').value.trim():'');show('s-lines');if(on())sendLogin();};
-          function sendLogin(){ws.send(JSON.stringify({t:'login',base,num:$('num').value,avatar:av}));}
+            addEventListener('pointerdown',()=>{if(ctx&&ctx.state!=='running')ctx.resume();});
+            return true;}
+          $('start').onclick=async()=>{
+            showErr('');if(!base)return showErr(t('pickfirst'));
+            if(isTaken(base)&&!$('num').value.trim())return showErr(t('e_taken').replace('{n}',base).replace('{b}',base));
+            if(!(await initAudio()))return showErr(t('mic'));
+            profNum=$('num').value.trim();beginSession();};
+          function beginSession(){profileReady=true;const nm=base+(profNum?'-'+profNum:'');
+            $('me').textContent=$('me2').textContent=$('me3').textContent=nm;$('me-av').innerHTML=$('me-av2').innerHTML=$('me-av3').innerHTML=avatar(av);
+            show('s-lines');if(on())sendLogin();}
+          function sendLogin(){ws.send(JSON.stringify({t:'login',base,num:profNum,avatar:av}));}
           const ok2=()=>{if(on()&&loggedIn)return true;showErr(t('nocon'));return false;};
 
-          function play(buf){if(!ctx)return;const i16=new Int16Array(buf),f=new Float32Array(i16.length);for(let i=0;i<f.length;i++)f[i]=i16[i]/32768;
+          const nxt={};
+          function play(buf){if(!ctx||!spkOn||buf.byteLength<4)return;const id=new DataView(buf).getUint16(0),i16=new Int16Array(buf.slice(2)),f=new Float32Array(i16.length);
+            for(let i=0;i<f.length;i++)f[i]=i16[i]/32768;
             const ab=ctx.createBuffer(1,f.length,16000);ab.copyToChannel(f,0);const s=ctx.createBufferSource();s.buffer=ab;s.connect(ctx.destination);
-            nextT=Math.max(nextT,ctx.currentTime+0.12);s.start(nextT);nextT+=ab.duration;}
-          function beep(){if(!ctx)return;const o=ctx.createOscillator(),g=ctx.createGain();o.frequency.value=1000;g.gain.value=.08;o.connect(g);g.connect(ctx.destination);o.start();o.stop(ctx.currentTime+.08);}
+            const t0=Math.max(nxt[id]||0,ctx.currentTime+0.12);s.start(t0);nxt[id]=t0+ab.duration;}
+          function beep(){if(!ctx||!spkOn)return;const o=ctx.createOscillator(),g=ctx.createGain();o.frequency.value=1000;g.gain.value=.08;o.connect(g);g.connect(ctx.destination);o.start();o.stop(ctx.currentTime+.08);}
           const p=$('ptt');
-          function startTalk(){if(talking||p.disabled||rx.size)return;talking=true;p.classList.add('tx');$('pl').textContent=t('tx');ws.send(JSON.stringify({t:'ptt',on:true}));}
+          function startTalk(){if(talking||p.disabled||micBlocked)return;talking=true;p.classList.add('tx');$('pl').textContent=t('tx');ws.send(JSON.stringify({t:'ptt',on:true}));}
           function stopTalk(silent){if(!talking)return;talking=false;p.classList.remove('tx');$('pl').textContent=t('hold');if(!silent&&on())ws.send(JSON.stringify({t:'ptt',on:false}));beep();}
           p.addEventListener('contextmenu',e=>e.preventDefault());
-          p.addEventListener('pointerdown',e=>{p.setPointerCapture(e.pointerId);startTalk();});
+          p.addEventListener('pointerdown',e=>{try{p.setPointerCapture(e.pointerId);}catch(_){}startTalk();});
           ['pointerup','pointercancel'].forEach(k=>p.addEventListener(k,()=>stopTalk()));
           addEventListener('keydown',e=>{if(e.code==='Space'&&!e.repeat&&e.target.tagName!=='INPUT'&&$('s-home').classList.contains('on')){e.preventDefault();startTalk();}});
           addEventListener('keyup',e=>{if(e.code==='Space')stopTalk();});addEventListener('blur',()=>stopTalk());
@@ -591,9 +750,8 @@ jobs:
           const sendChat=()=>{const x=$('ctext').value.trim();if(x&&inLine&&on()){ws.send(JSON.stringify({t:'chat',text:x}));$('ctext').value='';}};
           $('csend').onclick=sendChat;$('ctext').onkeydown=e=>{if(e.key==='Enter')sendChat();};
 
-          try{const sv=JSON.parse(localStorage.getItem('prof')||'{}');
-            if(CALLS[sv.l]){letter=sv.l;if(CALLS[sv.l].includes(sv.b)){base=sv.b;$('pick').textContent=base;}}if(sv.a>=0&&sv.a<48)av=sv.a;}catch(e){}
-          $('chp').onclick=()=>location.reload();
+          let autoStart=false;
+          try{const sv=JSON.parse(localStorage.getItem('prof')||'null');if(sv&&CALLS[sv.l]&&CALLS[sv.l].includes(sv.b)&&sv.a>=0&&sv.a<48){letter=sv.l;base=sv.b;av=sv.a;profNum=String(sv.n||'');autoStart=true;}}catch(e){}
           let loArm=0;$('lo').onclick=()=>{if(!loArm){loArm=1;$('lo').textContent=t('sure');setTimeout(()=>{loArm=0;$('lo').textContent=t('logout');},4000);return;}
             try{localStorage.clear();}catch(e){}if(window.Android&&hosting)Android.host(false);if(ws){ws.onclose=null;ws.close();}location.reload();};
           const THEMES=['#ffd32f','#ff9ec4','#7de3b5','#7cc4ff','#ff9f4a','#c3a6ff','#ff7b6b','#eeeeee'];
@@ -610,7 +768,20 @@ jobs:
               b.innerHTML=`<svg viewBox="0 0 24 24"><path d="${s.d}"/></svg>`;b.onclick=()=>applyPtt(i);$('ptts').appendChild(b);});}
           try{const th=localStorage.getItem('theme'),ps=localStorage.getItem('pst');if(ps!==null&&PS[+ps])pstyle=+ps;if(th)document.documentElement.style.setProperty('--y',th);}catch(e){}
           buildSettings();setTheme(getComputedStyle(document.documentElement).getPropertyValue('--y').trim()||THEMES[0]);applyPtt(pstyle);
-          drawAvs();applyLang();findHost();
+          const SPK_ON='<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>',SPK_OFF='<svg viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51A8.796 8.796 0 0 0 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3 3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a8.99 8.99 0 0 0 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4 9.91 6.09 12 8.18V4z"/></svg>',MIC_ON='<svg viewBox="0 0 24 24"><path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/></svg>',MIC_OFF='<svg viewBox="0 0 24 24"><path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v.18l5.98 5.99zM4.27 3 3 4.27l6.01 6.01V11c0 1.66 1.33 3 2.99 3 .22 0 .44-.03.65-.08l1.66 1.66c-.71.33-1.5.52-2.31.52-2.76 0-5.3-2.1-5.3-5.1H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c.91-.13 1.77-.45 2.54-.9L19.73 21 21 19.73 4.27 3z"/></svg>';
+          function setSpk(v,notify){spkOn=v;const b=$('spk');b.setAttribute('aria-pressed',String(!v));b.innerHTML=v?SPK_ON:SPK_OFF;if(notify&&on())ws.send(JSON.stringify({t:'spk',on:v}));}
+          $('spk').onclick=()=>setSpk(!spkOn,true);
+          function lineLabel(r){return r?(r.startsWith('l:')?LANGS[r.slice(2)]:r.replace(/^p:/,'')):'—';}
+          function hostList(list){isHostUI=true;$('hostpanel').style.display='';const box=$('hlist');box.innerHTML='';
+            list.filter(u=>u.id!==myId).forEach(u=>{const row=document.createElement('div');row.className='hrow';
+              const pic=document.createElement('span');pic.className='m';pic.innerHTML=avatar(u.avatar);
+              const nm=document.createElement('div');nm.className='hn';const b=document.createElement('b');b.textContent=u.name;const sm=document.createElement('small');sm.textContent=lineLabel(u.room);nm.append(b,sm);
+              const bs=document.createElement('button');bs.className='hb'+(u.spk?'':' off');bs.setAttribute('aria-label',t('hspk'));bs.innerHTML=u.spk?SPK_ON:SPK_OFF;bs.onclick=()=>ws.send(JSON.stringify({t:'hostset',id:u.id,spk:!u.spk}));
+              const bm=document.createElement('button');bm.className='hb'+(u.mm?' off':'');bm.setAttribute('aria-label',t('hmic'));bm.innerHTML=u.mm?MIC_OFF:MIC_ON;bm.onclick=()=>ws.send(JSON.stringify({t:'hostset',id:u.id,mm:!u.mm}));
+              row.append(pic,nm,bs,bm);box.appendChild(row);});
+            if(!box.children.length)box.textContent='—';}
+          setSpk(true,false);
+          drawAvs();applyLang();findHost();if(autoStart){beginSession();initAudio().then(ok=>{if(!ok)showErr(t('mic'));});}
           </script></body></html>
           WALKIE_EOF_9
       - uses: actions/setup-java@v4
