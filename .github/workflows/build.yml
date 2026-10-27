@@ -142,6 +142,7 @@ jobs:
                   }
                   @JavascriptInterface fun found(): String = foundAddr
                   @JavascriptInterface fun host(on: Boolean): String {
+                      if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return "NOPERM"
                       startForegroundService(Intent(this@MainActivity, RadioService::class.java).putExtra("host", on))
                       return if (on) ip() else ""
                   }
@@ -227,7 +228,8 @@ jobs:
               class C(val id: Int, val name: String, val avatar: Int) { var room: String? = null }
               class Room { val members = LinkedHashSet<WebSocket>(); var talker: WebSocket? = null }
 
-              private val calls = "Alpha Ace Bravo Beta Charlie Cobra Delta Echo Foxtrot Falcon Golf Ghost Hotel Hawk India Ice Juliet Jaguar Kilo King Lima Lion Mike Matrix November Ninja Oscar Omega Papa Phoenix Quebec Quantum Romeo Raven Sierra Sigma Tango Thunder Uniform Ultra Victor Viper Whiskey Wolf Xray Xenon Yankee Yoyo Zulu Zero".split(" ")
+              private val calls = "Alpha Ace Apollo Arrow Atlas Aurora Avalon Axel Bravo Beta Blaze Bolt Bear Breeze Bishop Bandit Charlie Cobra Comet Cyclone Condor Cosmo Crystal Cipher Delta Dragon Dash Dusk Diamond Dingo Drift Dynamo Echo Eagle Ember Eclipse Emerald Everest Equinox Edge Foxtrot Falcon Flash Frost Fury Fox Flare Fusion Golf Ghost Gamma Giant Griffin Galaxy Glacier Gizmo Hotel Hawk Hunter Horizon Harbor Hydra Halo Haze India Ice Iron Indigo Ion Ivy Impulse Inferno Juliet Jaguar Jet Jade Joker Jupiter Jester Jungle Kilo King Kite Karma Kraken Knight Koala Kodiak Lima Lion Lynx Laser Legend Lotus Lunar Lancer Mike Matrix Maverick Mirage Mustang Meteor Magnet Marvel November Ninja Nova Neon Nimbus Nomad Nitro Nebula Oscar Omega Orbit Onyx Orion Oasis Otter Ocean Papa Phoenix Pilot Panther Pixel Pluto Prism Pulse Quebec Quantum Quest Quartz Quasar Quick Quill Quiver Romeo Raven Rocket Ranger Radar Rhino Ridge Rogue Sierra Sigma Shadow Spark Storm Sonic Sphinx Summit Tango Thunder Titan Tiger Turbo Tornado Trident Topaz Uniform Ultra Umbra Unity Uranus Urban Utopia Ursa Victor Viper Vector Vortex Venom Velvet Valor Vega Whiskey Wolf Wizard Wave Warrior Willow Whisper Wraith Xray Xenon Xander Xylo Xeno Xerxes Xavier Xenia Yankee Yoyo Yeti Yarrow Yonder Yukon Yogi Yield Zulu Zero Zephyr Zenith Zebra Zigzag Zodiac Zorro".split(" ")
+              private val langCodes = setOf("en", "hi", "bn", "as", "brx", "doi", "gu", "kn", "ks", "kok", "mai", "ml", "mni", "mr", "ne", "or", "pa", "sa", "sat", "sd", "ta", "te", "ur")
               private val clients = HashMap<WebSocket, C>()
               private val names = HashMap<String, WebSocket>()
               private val rooms = HashMap<String, Room>()
@@ -235,7 +237,7 @@ jobs:
 
               private fun roomOf(c: C) = c.room?.let { rooms[it] }
               private fun send(w: WebSocket, o: JSONObject) { if (w.isOpen) w.send(o.toString()) }
-              private fun err(w: WebSocket, m: String) = send(w, JSONObject().put("t", "error").put("msg", m))
+              private fun err(w: WebSocket, code: String, name: String = "") = send(w, JSONObject().put("t", "error").put("code", code).put("name", name))
               private fun list(r: Room) = JSONArray().also { a -> r.members.forEach { w -> clients[w]?.let { c ->
                   a.put(JSONObject().put("id", c.id).put("name", c.name).put("avatar", c.avatar).put("talking", r.talker === w)) } } }
               private fun pushMembers(r: Room) { val m = JSONObject().put("t", "members").put("list", list(r)); r.members.forEach { send(it, m) } }
@@ -251,7 +253,7 @@ jobs:
               private fun leave(w: WebSocket) {
                   val c = clients[w] ?: return; val key = c.room ?: return
                   release(w); val r = rooms[key]
-                  if (r != null) { r.members.remove(w); if (r.members.isEmpty() && true) rooms.remove(key) else pushMembers(r) }
+                  if (r != null) { r.members.remove(w); if (r.members.isEmpty()) rooms.remove(key) else pushMembers(r) }
                   c.room = null
               }
               private fun enter(w: WebSocket, key: String, priv: Boolean) {
@@ -280,21 +282,22 @@ jobs:
                   val c = clients[w]
                   when (m.optString("t")) {
                       "login" -> if (c == null) {
-                          val base = calls.firstOrNull { it == m.optString("base") } ?: return err(w, "অবৈধ কলসাইন।")
+                          val base = calls.firstOrNull { it == m.optString("base") } ?: return err(w, "bad_call")
                           val num = m.optString("num").trim()
-                          if (num.isNotEmpty() && !Regex("\\d{1,4}").matches(num)) return err(w, "নামের পরে শুধু সংখ্যা দেওয়া যাবে (১-৪ অঙ্ক)।")
+                          if (num.isNotEmpty() && !Regex("\\d{1,2}").matches(num)) return err(w, "bad_num")
                           val name = if (num.isEmpty()) base else "$base-$num"
-                          if (names.containsKey(name.lowercase())) return err(w, "\"$name\" নামটি ইতিমধ্যে আছে। নামের পরে অন্য একটি সংখ্যা দিন (যেমন $base-12)।")
+                          if (names.containsKey(name.lowercase())) return err(w, "taken", name)
                           clients[w] = C(nextId++, name, m.optInt("avatar").coerceIn(0, 31)); names[name.lowercase()] = w
                           send(w, JSONObject().put("t", "welcome").put("name", name)); pushTaken()
                       }
+                      "lang" -> if (c != null) { val lc = m.optString("code"); if (lc in langCodes) enter(w, "l:$lc", true) }
                       "leave" -> if (c != null) { leave(w); send(w, JSONObject().put("t", "left")) }
                       "create", "join" -> if (c != null) {
                           val code = m.optString("code").trim().take(32)
-                          if (code.length < 3) return err(w, "প্রাইভেট কোড কমপক্ষে ৩ অক্ষরের হতে হবে।")
+                          if (code.length < 3) return err(w, "short")
                           val key = "p:" + code.lowercase(); val ex = rooms.containsKey(key)
-                          if (m.optString("t") == "create" && ex) return err(w, "এই কোডে লাইন আগে থেকেই আছে। অন্য কোড দিন, অথবা \"যোগ দিন\" চাপুন।")
-                          if (m.optString("t") == "join" && !ex) return err(w, "এই কোডে কোনো লাইন নেই। কোডটি আবার দেখুন।")
+                          if (m.optString("t") == "create" && ex) return err(w, "exists")
+                          if (m.optString("t") == "join" && !ex) return err(w, "nofound")
                           enter(w, key, true)
                       }
                       "ptt" -> if (c != null) { val r = roomOf(c) ?: return
@@ -314,191 +317,228 @@ jobs:
           mkdir -p "$(dirname app/src/main/assets/index.html)"
           cat > app/src/main/assets/index.html <<'WALKIE_EOF_9'
           <!DOCTYPE html>
-          <html lang="bn"><head><meta charset="utf-8">
+          <html lang="en"><head><meta charset="utf-8">
           <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
           <title>Betar Radio</title>
           <style>
-          :root{--bg:#121a2b;--panel:#1c2740;--line:#2c3b5e;--text:#eaf0ff;--dim:#8fa0c4;--tx:#ff5c8a;--ok:#7be0d0;--warn:#ffc857}
-          *{box-sizing:border-box}
-          html,body{height:100%;margin:0}
-          body{background:var(--bg);color:var(--text);font:16px/1.5 "Noto Sans Bengali","Hind Siliguri",system-ui,sans-serif;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
-          button{font:inherit;color:inherit;cursor:pointer}
-          :focus-visible{outline:3px solid var(--ok);outline-offset:2px}
-          .screen{display:none;max-width:760px;margin:0 auto;padding:20px 16px 40px}
-          .screen.on{display:block}
-          h1{font-size:1.7rem;margin:.2em 0}
-          h2{font-size:1.05rem;margin:1.4em 0 .5em;color:var(--dim);font-weight:600}
-          .chips{display:flex;flex-wrap:wrap;gap:8px}
-          .chip{background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:6px 14px}
-          .chip[aria-pressed=true]{background:var(--ok);color:#06201c;border-color:var(--ok);font-weight:700}
-          .chip.taken{opacity:.55;border-style:dashed}
-          .avs{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:8px}
-          .av{padding:0;border:3px solid transparent;border-radius:16px;overflow:hidden;background:none;aspect-ratio:1}
-          .av[aria-pressed=true]{border-color:var(--tx)}
-          .av svg,.mem svg{width:100%;height:100%;display:block}
-          input{font:inherit;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:12px;padding:10px 12px;width:100%}
-          .row{display:flex;gap:8px;align-items:center}
-          .go{background:var(--tx);border:0;border-radius:14px;padding:12px 22px;font-weight:700;color:#2b0614}
-          .alt{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 16px}
-          .msg{min-height:1.5em;color:var(--warn);margin:10px 0}
-          .top{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
-          .badge{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:6px 12px}
-          .badge b{color:var(--ok)}
-          .members{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:10px;margin:14px 0}
-          .mem{text-align:center;font-size:.85rem;word-break:break-all}
-          .mem .pic{width:64px;height:64px;margin:0 auto 4px;border-radius:50%;overflow:hidden;border:3px solid var(--line)}
-          .mem.talking .pic{border-color:var(--tx);box-shadow:0 0 0 6px #ff5c8a44}
-          .ptt-wrap{position:sticky;bottom:12px;text-align:center;padding-top:10px}
-          #ptt{width:min(72vw,230px);aspect-ratio:1;border-radius:50%;border:8px solid var(--line);background:var(--panel);font-size:1.15rem;font-weight:700;touch-action:none;user-select:none;-webkit-user-select:none}
-          #ptt.tx{background:var(--tx);border-color:#ffd0de;color:#2b0614}
-          #ptt.rx{border-color:var(--ok)}
-          #ptt:disabled{opacity:.5}
-          .status{margin-top:10px;color:var(--dim);min-height:1.5em}
-          @media(prefers-reduced-motion:no-preference){#ptt{transition:background .12s,border-color .12s}}
-          </style>
-          </head><body>
-          <section id="login" class="screen on">
-            <h1>Betar Radio</h1>
-            <p style="color:var(--dim)">একই ওয়াইফাইয়ের সবার সাথে কথা বলুন। লগইন বা টাকা লাগে না।</p>
-            <h2>সংযোগ</h2>
-            <div class="badge" id="conn">সার্ভার খোঁজা হচ্ছে…</div>
-            <div class="row" style="margin-top:8px">
-              <button class="alt" id="rescan">আবার খুঁজুন</button>
-              <button class="alt" id="host" style="display:none">এই ফোনকে হোস্ট বানান</button>
-            </div>
-            <details style="margin-top:8px"><summary style="color:var(--dim)">নিজে ঠিকানা দিন (দরকার হলে)</summary>
-              <input id="srv" placeholder="যেমন 192.168.1.5:8765" autocapitalize="off" autocomplete="off"></details>
-            <h2>কলসাইন (A–Z)</h2>
-            <div class="chips" id="calls"></div>
-            <h2>নাম আগে নেওয়া হয়ে গেলে সংখ্যা যোগ করুন (ঐচ্ছিক)</h2>
-            <div class="row"><span id="pick" class="badge">—</span><input id="num" inputmode="numeric" maxlength="4" placeholder="যেমন 12" style="max-width:130px"></div>
-            <h2>প্রোফাইল ছবি</h2>
-            <div class="avs" id="avs"></div>
-            <div class="msg" id="lmsg" role="alert"></div>
-            <button class="go" id="enter">রেডিও চালু করুন</button>
+          :root{--y:#ffd32f;--ink:#111;--pink:#ff5c8a}
+          *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+          html,body{margin:0;min-height:100%}
+          body{background:var(--y);color:var(--ink);font:16px/1.45 system-ui,"Noto Sans Bengali","Noto Sans Devanagari",sans-serif;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+          button{font:inherit;color:inherit;border:0;cursor:pointer}
+          :focus-visible{outline:3px solid #111;outline-offset:2px}
+          .scr{display:none;max-width:520px;margin:0 auto;padding:18px 16px 40px}.scr.on{display:block}
+          h1{font-size:2rem;margin:.1em 0;letter-spacing:-.02em}h2{font-size:1rem;margin:1.3em 0 .5em}
+          .top{display:flex;justify-content:space-between;align-items:center}
+          .btn{background:#111;color:#fff;border-radius:999px;padding:12px 22px;font-weight:700}
+          .btn.alt{background:#fff;color:#111}
+          .ib{background:#111;border-radius:50%;width:46px;height:46px;display:grid;place-items:center}
+          svg{width:24px;height:24px;fill:#fff}
+          input{font:inherit;width:100%;background:#fff;border:2px solid #111;border-radius:16px;padding:11px 14px;color:#111}
+          .grid{display:flex;flex-wrap:wrap;gap:8px}
+          .chip{background:#fff7d1;border:2px solid #111;border-radius:999px;padding:5px 13px}
+          .chip[aria-pressed=true]{background:#111;color:var(--y)}
+          .tabs{display:flex;gap:6px;overflow-x:auto;padding:2px 0 10px}.tab{flex:none;width:38px;height:38px;border-radius:12px;background:#fff7d1;border:2px solid #111;font-weight:800}.tab[aria-selected=true]{background:#111;color:var(--y)}
+          .chip.taken{border-style:dashed;opacity:.6}
+          .avs{display:grid;grid-template-columns:repeat(auto-fill,minmax(62px,1fr));gap:8px}
+          .av{padding:0;aspect-ratio:1;border:4px solid transparent;border-radius:50%;overflow:hidden;background:none}
+          .av[aria-pressed=true]{border-color:#111}
+          .av svg,.m svg{width:100%;height:100%;fill:none}
+          .msg{min-height:1.4em;font-weight:600;margin:8px 0;color:#7a1020}
+          .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+          .radio{width:min(100%,340px);margin:6px auto 0}
+          .ant{width:28px;height:44px;background:#333;border-radius:14px 14px 0 0;margin-left:66%}
+          .unit{background:#111;border-radius:30px;padding:12px}
+          .lcd{background:linear-gradient(135deg,#a6e34f,#4d8a0f);border-radius:18px;padding:12px 14px;min-height:150px;color:#173300;font:800 15px/1.5 ui-monospace,Menlo,monospace;letter-spacing:.05em;text-transform:uppercase;display:flex;flex-direction:column}
+          #l2{font-size:22px;margin-top:auto;overflow-wrap:anywhere}
+          #mems{display:flex;gap:6px;margin:6px 0 2px;min-height:34px}
+          .m{width:34px;height:34px;border-radius:50%;overflow:hidden;border:3px solid #173300}.m.tk{border-color:#ff5c8a;box-shadow:0 0 0 3px #ff5c8a88}
+          .keys{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}
+          .keys button{background:#333;border-radius:22px;height:56px;display:grid;place-items:center}
+          .grille{height:104px;margin:14px 10px 0;background:radial-gradient(circle,#d4a800 0 5px,transparent 6px) 0 0/30px 26px}
+          #ptt{display:block;margin:12px auto 0;width:150px;height:150px;border-radius:50%;background:#111;color:#fff;font-weight:800;font-size:14px;padding:12px;box-shadow:0 8px 0 #0003;touch-action:none;user-select:none;-webkit-user-select:none}
+          #ptt.tx{background:var(--pink);color:#2b0614}#ptt.rx{outline:6px solid #4d8a0f}#ptt:disabled{opacity:.45}
+          .sheet{position:fixed;inset:0;background:#0007;display:none;align-items:flex-end;z-index:5}.sheet.on{display:flex}
+          .sheet>div{background:#fff;width:100%;max-width:520px;margin:0 auto;border-radius:26px 26px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom));max-height:88vh;overflow:auto}
+          #chat{height:34vh;overflow:auto;background:#f6f1de;border-radius:16px;padding:10px 12px;margin:10px 0}
+          #chat b{margin-right:4px}
+          @media(prefers-reduced-motion:no-preference){#ptt{transition:background .12s}}
+          </style></head><body>
+
+          <section id="s-setup" class="scr on">
+            <div class="top"><h1>Betar Radio</h1><button class="ib" id="g1" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M4 6h10v2H4zM18 6h2v2h-2zM14 4h4v6h-4zM4 11h2v2H4zM10 11h10v2H10zM6 9h4v6H6zM4 16h10v2H4zM18 16h2v2h-2zM14 14h4v6h-4z"/></svg></button></div>
+            <p data-i="tag"></p>
+            <h2 data-i="av"></h2><div class="avs" id="avs"></div>
+            <h2 data-i="call"></h2><div class="tabs" id="letters" role="tablist"></div><div class="grid" id="calls"></div>
+            <div class="row" style="margin-top:12px"><b id="pick">—</b><input id="num" inputmode="numeric" maxlength="2" pattern="[0-9]*" data-ph="num" disabled style="max-width:130px"><small id="nh"></small></div>
+            <div class="msg" id="e1" role="alert"></div>
+            <div class="row"><button class="btn" id="start" data-i="start"></button><span id="cs1"></span></div>
           </section>
 
-          <section id="radio" class="screen">
-            <div class="top"><div class="badge">আপনি: <b id="me"></b></div><div class="badge">লাইন: <b id="line">নেই</b></div></div>
-            <h2>প্রাইভেট লাইন (একই কোড = একই লাইন)</h2>
-            <input id="code" placeholder="কোড (কমপক্ষে ৩ অক্ষর)" maxlength="32" autocomplete="off">
-            <div class="row" style="margin-top:8px">
-              <button class="alt" id="create">নতুন লাইন বানান</button>
-              <button class="alt" id="join">যোগ দিন</button>
-              <button class="alt" id="leave" style="display:none">লাইন ছাড়ুন</button>
-            </div>
-            <div class="msg" id="rmsg" role="alert"></div>
-            <div class="members" id="members" aria-live="polite"></div>
-            <h2>টেক্সট চ্যাট</h2>
-            <div id="chat" style="max-height:160px;overflow:auto;background:var(--panel);border-radius:12px;padding:8px 12px"></div>
-            <div class="row" style="margin-top:8px"><input id="ctext" maxlength="500" placeholder="মেসেজ লিখুন"><button class="alt" id="csend">পাঠান</button></div>
-            <div class="ptt-wrap"><button id="ptt" disabled>চেপে ধরে কথা বলুন</button><div class="status" id="status">আগে একটি লাইনে ঢুকুন</div></div>
+          <section id="s-home" class="scr">
+            <div class="top"><div class="row"><span class="m" id="me-av" style="width:46px;height:46px;border-color:#111"></span><b id="me"></b></div>
+              <button class="ib" id="g2" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M4 6h10v2H4zM18 6h2v2h-2zM14 4h4v6h-4zM4 11h2v2H4zM10 11h10v2H10zM6 9h4v6H6zM4 16h10v2H4zM18 16h2v2h-2zM14 14h4v6h-4z"/></svg></button></div>
+            <div class="radio"><div class="ant"></div>
+              <div class="unit"><div class="lcd"><div id="l1"></div><div id="mems"></div><div id="l3"></div><div id="l2"></div></div>
+                <div class="keys">
+                  <button id="bChat" aria-label="Chat"><svg viewBox="0 0 24 24"><path d="M4 4h16v12H9l-5 4z"/></svg></button>
+                  <button id="bLine" aria-label="Line"><svg viewBox="0 0 24 24"><path d="M11 4h2v7h7v2h-7v7h-2v-7H4v-2h7z"/></svg></button>
+                  <button id="bLeave" aria-label="Leave"><svg viewBox="0 0 24 24"><path d="M11 3h2v10h-2zM7 6.300l1.400 1.400a6 6 0 1 0 7.200 0L17 6.300a8 8 0 1 1-10 0z"/></svg></button>
+                </div></div>
+              <div class="grille"></div></div>
+            <button id="ptt" disabled data-i="hold"></button>
           </section>
+
+          <div class="sheet" id="sh-line"><div>
+            <div class="top"><h2 data-i="linet" style="margin:0"></h2><button class="btn alt" data-close data-i="close"></button></div>
+            <input id="code" maxlength="32" autocomplete="off" data-ph="code" style="margin-top:12px">
+            <div class="row" style="margin-top:10px"><button class="btn" id="create" data-i="create"></button><button class="btn alt" id="join" style="border:2px solid #111" data-i="join"></button></div>
+            <div class="msg" id="e2" role="alert"></div>
+            <h2 data-i="ll"></h2><div class="grid" id="llines"></div>
+          </div></div>
+
+          <div class="sheet" id="sh-chat"><div>
+            <div class="top"><h2 data-i="chat" style="margin:0"></h2><button class="btn alt" data-close data-i="close"></button></div>
+            <div id="chat"></div>
+            <div class="row"><input id="ctext" maxlength="500" data-ph="msg" style="flex:1"><button class="btn" id="csend" data-i="send"></button></div>
+          </div></div>
+
+          <div class="sheet" id="sh-set"><div>
+            <div class="top"><h2 data-i="settings" style="margin:0"></h2><button class="btn alt" data-close data-i="close"></button></div>
+            <h2 data-i="lang"></h2><div class="grid" id="langs"></div>
+            <div style="margin-top:12px"><button class="btn alt" id="chp" data-i="chp" style="border:2px solid #111"></button></div>
+            <h2 data-i="conn"></h2><div id="cstat" style="font-weight:700"></div>
+            <div class="row" style="margin-top:8px"><button class="btn" id="rescan" data-i="again"></button><button class="btn alt" id="host" style="display:none;border:2px solid #111"></button></div>
+            <details style="margin-top:10px"><summary data-i="manual"></summary><input id="srv" placeholder="192.168.1.5:8765" autocapitalize="off"></details>
+          </div></div>
 
           <script>
           const $=id=>document.getElementById(id);
-          const CALLS=['Alpha','Ace','Bravo','Beta','Charlie','Cobra','Delta','Echo','Foxtrot','Falcon','Golf','Ghost','Hotel','Hawk','India','Ice','Juliet','Jaguar','Kilo','King','Lima','Lion','Mike','Matrix','November','Ninja','Oscar','Omega','Papa','Phoenix','Quebec','Quantum','Romeo','Raven','Sierra','Sigma','Tango','Thunder','Uniform','Ultra','Victor','Viper','Whiskey','Wolf','Xray','Xenon','Yankee','Yoyo','Zulu','Zero'];
-          const HAIR=['#2b2d42','#e63946','#4cc9f0','#f9c74f','#9d4edd','#43aa8b','#ff8fab','#e5e5e5'];
-          const EYES=['#3a86ff','#e63946','#2a9d8f','#9d4edd'];
-          const $=id=>document.getElementById(id);
-
-          function avatar(i){
-            const h=HAIR[i%8],e=EYES[(i>>3)&3],bg=['#1b2a4a','#3a1c3f','#173a3a','#40301a'][(i>>3)&3];
+          const CALLS={"A":["Alpha","Ace","Apollo","Arrow","Atlas","Aurora","Avalon","Axel"],"B":["Bravo","Beta","Blaze","Bolt","Bear","Breeze","Bishop","Bandit"],"C":["Charlie","Cobra","Comet","Cyclone","Condor","Cosmo","Crystal","Cipher"],"D":["Delta","Dragon","Dash","Dusk","Diamond","Dingo","Drift","Dynamo"],"E":["Echo","Eagle","Ember","Eclipse","Emerald","Everest","Equinox","Edge"],"F":["Foxtrot","Falcon","Flash","Frost","Fury","Fox","Flare","Fusion"],"G":["Golf","Ghost","Gamma","Giant","Griffin","Galaxy","Glacier","Gizmo"],"H":["Hotel","Hawk","Hunter","Horizon","Harbor","Hydra","Halo","Haze"],"I":["India","Ice","Iron","Indigo","Ion","Ivy","Impulse","Inferno"],"J":["Juliet","Jaguar","Jet","Jade","Joker","Jupiter","Jester","Jungle"],"K":["Kilo","King","Kite","Karma","Kraken","Knight","Koala","Kodiak"],"L":["Lima","Lion","Lynx","Laser","Legend","Lotus","Lunar","Lancer"],"M":["Mike","Matrix","Maverick","Mirage","Mustang","Meteor","Magnet","Marvel"],"N":["November","Ninja","Nova","Neon","Nimbus","Nomad","Nitro","Nebula"],"O":["Oscar","Omega","Orbit","Onyx","Orion","Oasis","Otter","Ocean"],"P":["Papa","Phoenix","Pilot","Panther","Pixel","Pluto","Prism","Pulse"],"Q":["Quebec","Quantum","Quest","Quartz","Quasar","Quick","Quill","Quiver"],"R":["Romeo","Raven","Rocket","Ranger","Radar","Rhino","Ridge","Rogue"],"S":["Sierra","Sigma","Shadow","Spark","Storm","Sonic","Sphinx","Summit"],"T":["Tango","Thunder","Titan","Tiger","Turbo","Tornado","Trident","Topaz"],"U":["Uniform","Ultra","Umbra","Unity","Uranus","Urban","Utopia","Ursa"],"V":["Victor","Viper","Vector","Vortex","Venom","Velvet","Valor","Vega"],"W":["Whiskey","Wolf","Wizard","Wave","Warrior","Willow","Whisper","Wraith"],"X":["Xray","Xenon","Xander","Xylo","Xeno","Xerxes","Xavier","Xenia"],"Y":["Yankee","Yoyo","Yeti","Yarrow","Yonder","Yukon","Yogi","Yield"],"Z":["Zulu","Zero","Zephyr","Zenith","Zebra","Zigzag","Zodiac","Zorro"]};
+          const HAIR=['#2b2d42','#e63946','#4cc9f0','#f9c74f','#9d4edd','#43aa8b','#ff8fab','#e5e5e5'],EYES=['#3a86ff','#e63946','#2a9d8f','#9d4edd'];
+          function avatar(i){const h=HAIR[i%8],e=EYES[(i>>3)&3],bg=['#1b2a4a','#3a1c3f','#173a3a','#40301a'][(i>>3)&3];
             const eye=x=>`<ellipse cx="${x}" cy="60" rx="6.5" ry="9" fill="#fff"/><ellipse cx="${x}" cy="62" rx="5" ry="7.5" fill="${e}"/><ellipse cx="${x}" cy="63" rx="2.4" ry="4" fill="#111"/><circle cx="${x-2}" cy="58" r="2" fill="#fff"/>`;
-            return `<svg viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" fill="${bg}"/>
-            <path d="M18 58Q12 8 50 7Q88 8 82 58L83 90Q50 98 17 90Z" fill="${h}"/>
-            <ellipse cx="50" cy="60" rx="27" ry="30" fill="#ffe3d1"/>
-            <path d="M22 55Q28 18 50 21Q72 18 78 55Q66 34 50 40Q34 34 22 55Z" fill="${h}"/>
-            ${eye(38)}${eye(62)}
-            <ellipse cx="30" cy="73" rx="5" ry="2.5" fill="#ff9ab0" opacity=".6"/><ellipse cx="70" cy="73" rx="5" ry="2.5" fill="#ff9ab0" opacity=".6"/>
-            <path d="M44 79Q50 84 56 79" stroke="#b5475f" stroke-width="2" fill="none" stroke-linecap="round"/></svg>`;
+            return `<svg viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" fill="${bg}"/><path d="M18 58Q12 8 50 7Q88 8 82 58L83 90Q50 98 17 90Z" fill="${h}"/><ellipse cx="50" cy="60" rx="27" ry="30" fill="#ffe3d1"/><path d="M22 55Q28 18 50 21Q72 18 78 55Q66 34 50 40Q34 34 22 55Z" fill="${h}"/>${eye(38)}${eye(62)}<ellipse cx="30" cy="73" rx="5" ry="2.5" fill="#ff9ab0" opacity=".6"/><ellipse cx="70" cy="73" rx="5" ry="2.5" fill="#ff9ab0" opacity=".6"/><path d="M44 79Q50 84 56 79" stroke="#b5475f" stroke-width="2" fill="none" stroke-linecap="round"/></svg>`;}
+
+          const T={
+          en:{ll:'Language lines — talk in your language',chp:'Change callsign / character',tk:'Taken — add a number, e.g. 2',tag:'Talk with everyone on your Wi-Fi',av:'Choose your character',call:'Choose your callsign',num:'Number (optional)',start:'Start radio',settings:'Settings',lang:'App language',conn:'Connection',search:'Searching for a host…',connected:'Connected',disc:'Disconnected',nohost:'No host found. Ask someone to become host, then search again.',again:'Search again',host:'Become host',unhost:'Stop hosting',manual:'Enter address manually',noline:'No line',online:'online',speaking:'is speaking',linet:'Private line',code:'Line code (min 3 characters)',create:'Create line',join:'Join line',chat:'Chat',send:'Send',msg:'Type a message',hold:'HOLD TO TALK',tx:'TALKING…',busy:'Line is busy',close:'Close',pickfirst:'Choose a callsign first.',mic:'Please allow microphone access.',nocon:'Not connected to a host.',lost:'Connection lost. Reconnecting…',e_bad_call:'Invalid callsign.',e_bad_num:'Only 1–2 digits are allowed after the name.',e_taken:'“{n}” is already taken. Add or change the number, e.g. {b}-2.',e_short:'Line code needs at least 3 characters.',e_exists:'That code already has a line. Use another code or tap Join.',e_nofound:'No line with that code. Check the code.'},
+          bn:{ll:'ভাষার লাইন — নিজের ভাষায় কথা বলুন',chp:'কলসাইন / চরিত্র বদলান',tk:'নাম নেওয়া হয়ে গেছে — সংখ্যা দিন, যেমন ২',tag:'আপনার ওয়াইফাইয়ের সবার সাথে কথা বলুন',av:'আপনার চরিত্র বেছে নিন',call:'আপনার কলসাইন বেছে নিন',num:'নম্বর (ঐচ্ছিক)',start:'রেডিও চালু করুন',settings:'সেটিংস',lang:'অ্যাপের ভাষা',conn:'সংযোগ',search:'হোস্ট খোঁজা হচ্ছে…',connected:'সংযুক্ত',disc:'বিচ্ছিন্ন',nohost:'কোনো হোস্ট পাওয়া যায়নি। কাউকে হোস্ট চালু করতে বলুন, তারপর আবার খুঁজুন।',again:'আবার খুঁজুন',host:'হোস্ট হোন',unhost:'হোস্ট বন্ধ করুন',manual:'নিজে ঠিকানা দিন',noline:'লাইন নেই',online:'জন অনলাইন',speaking:'কথা বলছেন',linet:'প্রাইভেট লাইন',code:'লাইনের কোড (কমপক্ষে ৩ অক্ষর)',create:'লাইন বানান',join:'লাইনে যোগ দিন',chat:'চ্যাট',send:'পাঠান',msg:'মেসেজ লিখুন',hold:'কথা বলতে চেপে ধরুন',tx:'কথা বলছেন…',busy:'লাইন ব্যস্ত',close:'বন্ধ করুন',pickfirst:'আগে একটি কলসাইন বেছে নিন।',mic:'মাইক্রোফোনের অনুমতি দিন।',nocon:'হোস্টের সাথে সংযোগ নেই।',lost:'সংযোগ কেটে গেছে। আবার যুক্ত হচ্ছে…',e_bad_call:'অবৈধ কলসাইন।',e_bad_num:'নামের পরে শুধু ১–২ অঙ্কের সংখ্যা দেওয়া যাবে।',e_taken:'“{n}” নামটি ইতিমধ্যে আছে। সংখ্যা যোগ করুন, যেমন {b}-12।',e_short:'লাইনের কোড কমপক্ষে ৩ অক্ষরের হতে হবে।',e_exists:'এই কোডে লাইন আগে থেকেই আছে। অন্য কোড দিন বা “লাইনে যোগ দিন” চাপুন।',e_nofound:'এই কোডে কোনো লাইন নেই। কোডটি দেখে নিন।'},
+          hi:{ll:'भाषा लाइनें — अपनी भाषा में बात करें',chp:'कॉलसाइन / किरदार बदलें',tk:'नाम लिया जा चुका है — नंबर जोड़ें, जैसे 2',tag:'अपने Wi-Fi पर सबसे बात करें',av:'अपना किरदार चुनें',call:'अपना कॉलसाइन चुनें',num:'नंबर (वैकल्पिक)',start:'रेडियो शुरू करें',settings:'सेटिंग्स',lang:'ऐप की भाषा',conn:'कनेक्शन',search:'होस्ट खोजा जा रहा है…',connected:'जुड़ा हुआ',disc:'डिस्कनेक्टेड',nohost:'कोई होस्ट नहीं मिला। किसी से होस्ट बनने को कहें, फिर दोबारा खोजें।',again:'दोबारा खोजें',host:'होस्ट बनें',unhost:'होस्टिंग बंद करें',manual:'पता खुद दें',noline:'कोई लाइन नहीं',online:'ऑनलाइन',speaking:'बोल रहे हैं',linet:'प्राइवेट लाइन',code:'लाइन कोड (कम से कम 3 अक्षर)',create:'लाइन बनाएँ',join:'लाइन में जुड़ें',chat:'चैट',send:'भेजें',msg:'संदेश लिखें',hold:'बोलने के लिए दबाए रखें',tx:'बोल रहे हैं…',busy:'लाइन व्यस्त है',close:'बंद करें',pickfirst:'पहले कॉलसाइन चुनें।',mic:'कृपया माइक्रोफोन की अनुमति दें।',nocon:'होस्ट से कनेक्शन नहीं है।',lost:'कनेक्शन टूट गया। दोबारा जुड़ रहे हैं…',e_bad_call:'अमान्य कॉलसाइन।',e_bad_num:'नाम के बाद केवल 1–2 अंक दे सकते हैं।',e_taken:'“{n}” पहले से लिया जा चुका है। नंबर जोड़ें, जैसे {b}-12।',e_short:'लाइन कोड कम से कम 3 अक्षर का होना चाहिए।',e_exists:'इस कोड पर लाइन पहले से है। दूसरा कोड दें या “लाइन में जुड़ें” दबाएँ।',e_nofound:'इस कोड पर कोई लाइन नहीं है। कोड जाँचें।'}};
+          const LANGS={en:'English',hi:'हिन्दी',bn:'বাংলা',as:'অসমীয়া',brx:'बड़ो',doi:'डोगरी',gu:'ગુજરાતી',kn:'ಕನ್ನಡ',ks:'Kashmiri کٲشُر',kok:'कोंकणी',mai:'मैथिली',ml:'മലയാളം',mni:'Meiteilon ꯃꯩꯇꯩꯂꯣꯟ',mr:'मराठी',ne:'नेपाली',or:'ଓଡ଼ିଆ',pa:'ਪੰਜਾਬੀ',sa:'संस्कृतम्',sat:'Santali ᱥᱟᱱᱛᱟᱲᱤ',sd:'Sindhi سنڌي',ta:'தமிழ்',te:'తెలుగు',ur:'اردو'};
+          Object.assign(T,{
+          ta:{tag:'உங்கள் Wi-Fi-யில் உள்ள அனைவரிடமும் பேசுங்கள்',av:'உங்கள் கதாபாத்திரத்தைத் தேர்ந்தெடுக்கவும்',call:'உங்கள் அழைப்புப் பெயரைத் தேர்ந்தெடுக்கவும்',num:'எண் (விருப்பம்)',start:'ரேடியோவைத் தொடங்கு',settings:'அமைப்புகள்',lang:'பயன்பாட்டு மொழி',conn:'இணைப்பு',again:'மீண்டும் தேடு',noline:'லைன் இல்லை',online:'ஆன்லைன்',linet:'தனிப்பட்ட லைன்',code:'லைன் குறியீடு (குறைந்தது 3 எழுத்துகள்)',create:'லைன் உருவாக்கு',join:'லைனில் சேர்',chat:'அரட்டை',send:'அனுப்பு',msg:'செய்தியை எழுதுங்கள்',hold:'பேச அழுத்திப் பிடிக்கவும்',tx:'பேசுகிறீர்கள்…',busy:'லைன் பிஸியாக உள்ளது',close:'மூடு',pickfirst:'முதலில் அழைப்புப் பெயரைத் தேர்ந்தெடுக்கவும்.',mic:'மைக்ரோஃபோன் அனுமதியை வழங்கவும்.',speaking:'பேசுகிறார்',tk:'பெயர் எடுக்கப்பட்டுள்ளது — எண்ணைச் சேர்க்கவும், எ.கா. 2',chp:'அழைப்புப் பெயர் / கதாபாத்திரத்தை மாற்று',connected:'இணைக்கப்பட்டது',disc:'துண்டிக்கப்பட்டது',ll:'மொழி லைன்கள் — உங்கள் மொழியில் பேசுங்கள்'},
+          te:{tag:'మీ Wi-Fiలో ఉన్న అందరితో మాట్లాడండి',av:'మీ పాత్రను ఎంచుకోండి',call:'మీ కాల్‌సైన్‌ను ఎంచుకోండి',num:'సంఖ్య (ఐచ్ఛికం)',start:'రేడియో ప్రారంభించండి',settings:'సెట్టింగ్‌లు',lang:'యాప్ భాష',conn:'కనెక్షన్',again:'మళ్లీ వెతకండి',noline:'లైన్ లేదు',online:'ఆన్‌లైన్',linet:'ప్రైవేట్ లైన్',code:'లైన్ కోడ్ (కనీసం 3 అక్షరాలు)',create:'లైన్ సృష్టించండి',join:'లైన్‌లో చేరండి',chat:'చాట్',send:'పంపండి',msg:'సందేశం రాయండి',hold:'మాట్లాడటానికి నొక్కి ఉంచండి',tx:'మాట్లాడుతున్నారు…',busy:'లైన్ బిజీగా ఉంది',close:'మూసివేయి',pickfirst:'ముందుగా కాల్‌సైన్ ఎంచుకోండి.',mic:'దయచేసి మైక్రోఫోన్ అనుమతి ఇవ్వండి.',speaking:'మాట్లాడుతున్నారు',tk:'పేరు తీసుకోబడింది — సంఖ్య జోడించండి, ఉదా. 2',chp:'కాల్‌సైన్ / పాత్రను మార్చండి',connected:'కనెక్ట్ అయింది',disc:'డిస్‌కనెక్ట్ అయింది',ll:'భాషా లైన్లు — మీ భాషలో మాట్లాడండి'},
+          mr:{tag:'तुमच्या Wi-Fi वरील सर्वांशी बोला',av:'तुमचे पात्र निवडा',call:'तुमचा कॉलसाइन निवडा',num:'क्रमांक (ऐच्छिक)',start:'रेडिओ सुरू करा',settings:'सेटिंग्ज',lang:'अ‍ॅपची भाषा',conn:'कनेक्शन',again:'पुन्हा शोधा',noline:'लाइन नाही',online:'ऑनलाइन',linet:'खाजगी लाइन',code:'लाइन कोड (किमान ३ अक्षरे)',create:'लाइन तयार करा',join:'लाइनमध्ये सामील व्हा',chat:'चॅट',send:'पाठवा',msg:'संदेश लिहा',hold:'बोलण्यासाठी दाबून ठेवा',tx:'बोलत आहात…',busy:'लाइन व्यस्त आहे',close:'बंद करा',pickfirst:'आधी कॉलसाइन निवडा.',mic:'कृपया मायक्रोफोनची परवानगी द्या.',speaking:'बोलत आहेत',tk:'नाव घेतले गेले आहे — क्रमांक जोडा, उदा. 2',chp:'कॉलसाइन / पात्र बदला',connected:'जोडले गेले',disc:'जोडणी तुटली',ll:'भाषा लाइन्स — तुमच्या भाषेत बोला'},
+          gu:{tag:'તમારા Wi-Fi પરના બધા સાથે વાત કરો',av:'તમારું પાત્ર પસંદ કરો',call:'તમારો કૉલસાઇન પસંદ કરો',num:'નંબર (વૈકલ્પિક)',start:'રેડિયો શરૂ કરો',settings:'સેટિંગ્સ',lang:'એપની ભાષા',conn:'કનેક્શન',again:'ફરી શોધો',noline:'લાઇન નથી',online:'ઓનલાઇન',linet:'ખાનગી લાઇન',code:'લાઇન કોડ (ઓછામાં ઓછા 3 અક્ષર)',create:'લાઇન બનાવો',join:'લાઇનમાં જોડાઓ',chat:'ચેટ',send:'મોકલો',msg:'સંદેશ લખો',hold:'બોલવા માટે દબાવી રાખો',tx:'બોલી રહ્યા છો…',busy:'લાઇન વ્યસ્ત છે',close:'બંધ કરો',pickfirst:'પહેલા કૉલસાઇન પસંદ કરો.',mic:'કૃપા કરી માઇક્રોફોનની પરવાનગી આપો.',speaking:'બોલી રહ્યા છે',tk:'નામ લેવાઈ ગયું છે — નંબર ઉમેરો, જેમ કે 2',chp:'કૉલસાઇન / પાત્ર બદલો',connected:'જોડાયેલ',disc:'જોડાણ તૂટ્યું',ll:'ભાષા લાઇન — તમારી ભાષામાં વાત કરો'},
+          kn:{tag:'ನಿಮ್ಮ Wi-Fi ನಲ್ಲಿರುವ ಎಲ್ಲರೊಂದಿಗೆ ಮಾತನಾಡಿ',av:'ನಿಮ್ಮ ಪಾತ್ರವನ್ನು ಆಯ್ಕೆಮಾಡಿ',call:'ನಿಮ್ಮ ಕಾಲ್‌ಸೈನ್ ಆಯ್ಕೆಮಾಡಿ',num:'ಸಂಖ್ಯೆ (ಐಚ್ಛಿಕ)',start:'ರೇಡಿಯೋ ಪ್ರಾರಂಭಿಸಿ',settings:'ಸೆಟ್ಟಿಂಗ್‌ಗಳು',lang:'ಆ್ಯಪ್ ಭಾಷೆ',conn:'ಸಂಪರ್ಕ',again:'ಮತ್ತೆ ಹುಡುಕಿ',noline:'ಲೈನ್ ಇಲ್ಲ',online:'ಆನ್‌ಲೈನ್',linet:'ಖಾಸಗಿ ಲೈನ್',code:'ಲೈನ್ ಕೋಡ್ (ಕನಿಷ್ಠ 3 ಅಕ್ಷರ)',create:'ಲೈನ್ ರಚಿಸಿ',join:'ಲೈನ್ ಸೇರಿ',chat:'ಚಾಟ್',send:'ಕಳುಹಿಸಿ',msg:'ಸಂದೇಶ ಬರೆಯಿರಿ',hold:'ಮಾತನಾಡಲು ಒತ್ತಿ ಹಿಡಿಯಿರಿ',tx:'ಮಾತನಾಡುತ್ತಿದ್ದೀರಿ…',busy:'ಲೈನ್ ಬ್ಯುಸಿ ಇದೆ',close:'ಮುಚ್ಚಿ',pickfirst:'ಮೊದಲು ಕಾಲ್‌ಸೈನ್ ಆಯ್ಕೆಮಾಡಿ.',mic:'ದಯವಿಟ್ಟು ಮೈಕ್ರೋಫೋನ್ ಅನುಮತಿ ನೀಡಿ.',speaking:'ಮಾತನಾಡುತ್ತಿದ್ದಾರೆ',tk:'ಹೆಸರು ತೆಗೆದುಕೊಳ್ಳಲಾಗಿದೆ — ಸಂಖ್ಯೆ ಸೇರಿಸಿ, ಉದಾ. 2',chp:'ಕಾಲ್‌ಸೈನ್ / ಪಾತ್ರ ಬದಲಿಸಿ',connected:'ಸಂಪರ್ಕಗೊಂಡಿದೆ',disc:'ಸಂಪರ್ಕ ಕಡಿತ',ll:'ಭಾಷಾ ಲೈನ್‌ಗಳು — ನಿಮ್ಮ ಭಾಷೆಯಲ್ಲಿ ಮಾತನಾಡಿ'},
+          ml:{tag:'നിങ്ങളുടെ Wi-Fi-യിലെ എല്ലാവരോടും സംസാരിക്കുക',av:'നിങ്ങളുടെ കഥാപാത്രം തിരഞ്ഞെടുക്കുക',call:'നിങ്ങളുടെ കോൾസൈൻ തിരഞ്ഞെടുക്കുക',num:'നമ്പർ (ഓപ്ഷണൽ)',start:'റേഡിയോ ആരംഭിക്കുക',settings:'ക്രമീകരണങ്ങൾ',lang:'ആപ്പ് ഭാഷ',conn:'കണക്ഷൻ',again:'വീണ്ടും തിരയുക',noline:'ലൈൻ ഇല്ല',online:'ഓൺലൈൻ',linet:'സ്വകാര്യ ലൈൻ',code:'ലൈൻ കോഡ് (കുറഞ്ഞത് 3 അക്ഷരം)',create:'ലൈൻ സൃഷ്ടിക്കുക',join:'ലൈനിൽ ചേരുക',chat:'ചാറ്റ്',send:'അയയ്ക്കുക',msg:'സന്ദേശം എഴുതുക',hold:'സംസാരിക്കാൻ അമർത്തിപ്പിടിക്കുക',tx:'സംസാരിക്കുന്നു…',busy:'ലൈൻ തിരക്കിലാണ്',close:'അടയ്ക്കുക',pickfirst:'ആദ്യം ഒരു കോൾസൈൻ തിരഞ്ഞെടുക്കുക.',mic:'മൈക്രോഫോൺ അനുമതി നൽകുക.',speaking:'സംസാരിക്കുന്നു',tk:'പേര് എടുത്തു — നമ്പർ ചേർക്കുക, ഉദാ. 2',chp:'കോൾസൈൻ / കഥാപാത്രം മാറ്റുക',connected:'കണക്റ്റ് ചെയ്തു',disc:'വിച്ഛേദിച്ചു',ll:'ഭാഷാ ലൈനുകൾ — നിങ്ങളുടെ ഭാഷയിൽ സംസാരിക്കുക'},
+          pa:{tag:'ਆਪਣੇ Wi-Fi ਤੇ ਸਭ ਨਾਲ ਗੱਲ ਕਰੋ',av:'ਆਪਣਾ ਕਿਰਦਾਰ ਚੁਣੋ',call:'ਆਪਣਾ ਕਾਲਸਾਈਨ ਚੁਣੋ',num:'ਨੰਬਰ (ਵਿਕਲਪਿਕ)',start:'ਰੇਡੀਓ ਸ਼ੁਰੂ ਕਰੋ',settings:'ਸੈਟਿੰਗਾਂ',lang:'ਐਪ ਦੀ ਭਾਸ਼ਾ',conn:'ਕਨੈਕਸ਼ਨ',again:'ਦੁਬਾਰਾ ਲੱਭੋ',noline:'ਕੋਈ ਲਾਈਨ ਨਹੀਂ',online:'ਆਨਲਾਈਨ',linet:'ਪ੍ਰਾਈਵੇਟ ਲਾਈਨ',code:'ਲਾਈਨ ਕੋਡ (ਘੱਟੋ-ਘੱਟ 3 ਅੱਖਰ)',create:'ਲਾਈਨ ਬਣਾਓ',join:'ਲਾਈਨ ਵਿੱਚ ਸ਼ਾਮਲ ਹੋਵੋ',chat:'ਚੈਟ',send:'ਭੇਜੋ',msg:'ਸੁਨੇਹਾ ਲਿਖੋ',hold:'ਬੋਲਣ ਲਈ ਦਬਾ ਕੇ ਰੱਖੋ',tx:'ਬੋਲ ਰਹੇ ਹੋ…',busy:'ਲਾਈਨ ਰੁੱਝੀ ਹੈ',close:'ਬੰਦ ਕਰੋ',pickfirst:'ਪਹਿਲਾਂ ਕਾਲਸਾਈਨ ਚੁਣੋ।',mic:'ਕਿਰਪਾ ਕਰਕੇ ਮਾਈਕ੍ਰੋਫ਼ੋਨ ਦੀ ਇਜਾਜ਼ਤ ਦਿਓ।',speaking:'ਬੋਲ ਰਹੇ ਹਨ',tk:'ਨਾਮ ਲਿਆ ਜਾ ਚੁੱਕਾ ਹੈ — ਨੰਬਰ ਜੋੜੋ, ਜਿਵੇਂ 2',chp:'ਕਾਲਸਾਈਨ / ਕਿਰਦਾਰ ਬਦਲੋ',connected:'ਜੁੜਿਆ ਹੋਇਆ',disc:'ਕੁਨੈਕਸ਼ਨ ਟੁੱਟਿਆ',ll:'ਭਾਸ਼ਾ ਲਾਈਨਾਂ — ਆਪਣੀ ਭਾਸ਼ਾ ਵਿੱਚ ਗੱਲ ਕਰੋ'},
+          ur:{tag:'اپنے Wi-Fi پر موجود سب سے بات کریں',av:'اپنا کردار منتخب کریں',call:'اپنا کال سائن منتخب کریں',num:'نمبر (اختیاری)',start:'ریڈیو شروع کریں',settings:'ترتیبات',lang:'ایپ کی زبان',conn:'کنکشن',again:'دوبارہ تلاش کریں',noline:'کوئی لائن نہیں',online:'آن لائن',linet:'نجی لائن',code:'لائن کوڈ (کم از کم 3 حروف)',create:'لائن بنائیں',join:'لائن میں شامل ہوں',chat:'چیٹ',send:'بھیجیں',msg:'پیغام لکھیں',hold:'بولنے کے لیے دبائے رکھیں',tx:'آپ بول رہے ہیں…',busy:'لائن مصروف ہے',close:'بند کریں',pickfirst:'پہلے کال سائن منتخب کریں۔',mic:'براہ کرم مائیکروفون کی اجازت دیں۔',speaking:'بول رہے ہیں',tk:'نام لیا جا چکا ہے — نمبر شامل کریں، مثلاً 2',chp:'کال سائن / کردار تبدیل کریں',connected:'منسلک',disc:'منقطع',ll:'زبان کی لائنیں — اپنی زبان میں بات کریں'}});
+
+          let lang='en';try{lang=localStorage.getItem('lang')||(navigator.language.startsWith('bn')?'bn':'en');}catch(e){}
+          const t=k=>(T[lang]&&T[lang][k])||T.en[k]||k;
+          function applyLang(){document.documentElement.lang=lang;document.documentElement.dir=(lang==='ur'&&T.ur)?'rtl':'ltr';
+            document.querySelectorAll('[data-i]').forEach(e=>e.textContent=t(e.dataset.i));
+            document.querySelectorAll('[data-ph]').forEach(e=>e.placeholder=t(e.dataset.ph));
+            $('host').textContent=t(hosting?'unhost':'host');
+            $('langs').innerHTML='';Object.keys(LANGS).forEach(k=>{const b=document.createElement('button');b.className='chip';b.textContent=LANGS[k];b.setAttribute('aria-pressed',k===lang);
+              b.onclick=()=>{lang=k;try{localStorage.setItem('lang',k);}catch(e){}applyLang();};$('langs').appendChild(b);});
+            $('llines').innerHTML='';Object.keys(LANGS).forEach(k=>{const b=document.createElement('button');b.className='chip';b.textContent=LANGS[k];b.onclick=()=>on()&&ws.send(JSON.stringify({t:'lang',code:k}));$('llines').appendChild(b);});
+            drawCalls();lcd();cstat();}
+
+          let letter='A',base=null,av=0,taken=[],ws=null,myId=null,inLine=false,lineName='',members=[],talking=false,stream=null,ctx=null,proc=null,nextT=0,rx=new Set(),hosting=false,searching=false;
+
+          function isTaken(n){return taken.some(x=>x.toLowerCase()===n.toLowerCase());}
+          function drawCalls(){
+            $('letters').innerHTML='';Object.keys(CALLS).forEach(L=>{const b=document.createElement('button');b.className='tab';b.textContent=L;b.setAttribute('role','tab');b.setAttribute('aria-selected',L===letter);
+              b.onclick=()=>{letter=L;drawCalls();};$('letters').appendChild(b);});
+            $('calls').innerHTML='';CALLS[letter].forEach(n=>{const b=document.createElement('button');b.className='chip'+(isTaken(n)?' taken':'');
+              b.textContent=`${letter} for ${n}`+(isTaken(n)?' ✕':'');b.setAttribute('aria-pressed',n===base);
+              b.onclick=()=>{base=n;$('pick').textContent=n;drawCalls();};$('calls').appendChild(b);});
+            const need=base&&isTaken(base);$('num').disabled=!need;if(!need)$('num').value='';$('nh').textContent=need?t('tk'):'';
           }
+          function drawAvs(){$('avs').innerHTML='';for(let i=0;i<32;i++){const b=document.createElement('button');b.className='av';b.innerHTML=avatar(i);b.setAttribute('aria-label','Character '+(i+1));
+            b.setAttribute('aria-pressed',i===av);b.onclick=()=>{av=i;drawAvs();};$('avs').appendChild(b);}}
+          const open=id=>$(id).classList.add('on'),shut=()=>document.querySelectorAll('.sheet').forEach(s=>s.classList.remove('on'));
+          document.querySelectorAll('[data-close]').forEach(b=>b.onclick=shut);
+          $('g1').onclick=$('g2').onclick=()=>open('sh-set');
+          $('bChat').onclick=()=>open('sh-chat');$('bLine').onclick=()=>open('sh-line');
+          const on=()=>ws&&ws.readyState===1;
+          function cstat(){const s=searching?t('search'):on()?t('connected')+' · '+$('srv').value:t('nohost');$('cstat').textContent=s;$('cs1').textContent=on()?'● '+t('connected'):'';}
+          function lcd(){$('l1').textContent=on()?t('connected'):t('disc');
+            $('l2').textContent=inLine?'# '+lineName:t('noline');
+            const who=members.find(u=>rx.has(u.id));$('l3').textContent=who?who.name+' '+t('speaking'):(inLine?members.length+' '+t('online'):'');
+            $('mems').innerHTML=members.slice(0,7).map(u=>`<span class="m${u.talking?' tk':''}">${avatar(u.avatar)}</span>`).join('');
+            $('ptt').classList.toggle('rx',rx.size>0);$('ptt').disabled=!inLine;}
+          function showErr(m){$('e1').textContent=$('e2').textContent=m||'';}
+          function errText(m){let s=t('e_'+m.code);return s.replace('{n}',m.name||'').replace('{b}',(m.name||'').split('-')[0]);}
 
-
-          let base=null,av=0,taken=[],ws=null,myId=null,inLine=false,talking=false,stream=null,ctx=null,proc=null,nextT=0,rx=new Set(),hosting=false;
-
-          function drawCalls(){$('calls').innerHTML='';CALLS.forEach(n=>{const b=document.createElement('button');
-            b.className='chip'+(taken.some(t=>t.toLowerCase()===n.toLowerCase())?' taken':'');b.textContent=`${n[0]} for ${n}`;
-            b.setAttribute('aria-pressed',n===base);b.onclick=()=>{base=n;$('pick').textContent=n;drawCalls();};$('calls').appendChild(b);});}
-          function drawAvs(){$('avs').innerHTML='';for(let i=0;i<32;i++){const b=document.createElement('button');b.className='av';b.innerHTML=avatar(i);
-            b.setAttribute('aria-label','ছবি '+(i+1));b.setAttribute('aria-pressed',i===av);b.onclick=()=>{av=i;drawAvs();};$('avs').appendChild(b);}}
-          drawCalls();drawAvs();
-
-          // ---- connection (Wi-Fi only)
           function connect(){
             const a=$('srv').value.trim().replace(/^(wss?|https?):\/\//,'');if(!a)return;
             if(ws){ws.onclose=null;ws.close();}
             ws=new WebSocket('ws://'+a);ws.binaryType='arraybuffer';
-            ws.onopen=()=>{$('conn').textContent='সংযুক্ত: '+a;};
+            ws.onopen=()=>{searching=false;cstat();lcd();};
             ws.onmessage=ev=>{
               if(typeof ev.data!=='string')return play(ev.data);
               const m=JSON.parse(ev.data);
-              if(m.t==='taken'){taken=m.taken;if($('login').classList.contains('on'))drawCalls();}
-              else if(m.t==='error'){($('login').classList.contains('on')?$('lmsg'):$('rmsg')).textContent=m.msg;}
-              else if(m.t==='welcome'){$('me').textContent=m.name;$('login').classList.remove('on');$('radio').classList.add('on');}
-              else if(m.t==='entered'){myId=m.you;inLine=true;$('chat').innerHTML='';$('line').textContent=m.room.replace(/^p:/,'');$('rmsg').textContent='';
-                $('leave').style.display='';$('ptt').disabled=false;$('status').textContent='স্পেস চেপে ধরেও কথা বলা যায়';drawMembers(m.list);}
-              else if(m.t==='left'){inLine=false;stopTalk();$('line').textContent='নেই';$('leave').style.display='none';$('ptt').disabled=true;$('members').innerHTML='';$('status').textContent='আগে একটি লাইনে ঢুকুন';}
-              else if(m.t==='members')drawMembers(m.list);
-              else if(m.t==='chat'){const d=document.createElement('div');d.textContent=m.name+': '+m.text;$('chat').appendChild(d);$('chat').scrollTop=1e9;}
-              else if(m.t==='talk'){if(m.on&&m.id!==myId)rx.add(m.id);else{rx.delete(m.id);if(!m.on&&m.id!==myId)beep();}status();}
-              else if(m.t==='busy'){$('status').textContent='লাইন ব্যস্ত — অন্যজন কথা বলছেন';stopTalk(true);}
+              if(m.t==='taken'){taken=m.taken;drawCalls();}
+              else if(m.t==='error')showErr(errText(m));
+              else if(m.t==='welcome'){$('me').textContent=m.name;$('s-setup').classList.remove('on');$('s-home').classList.add('on');open('sh-line');lcd();}
+              else if(m.t==='entered'){myId=m.you;inLine=true;lineName=m.room.startsWith('l:')?LANGS[m.room.slice(2)]:m.room.replace(/^p:/,'');members=m.list;$('chat').innerHTML='';showErr('');shut();lcd();}
+              else if(m.t==='left'){inLine=false;stopTalk();members=[];lcd();}
+              else if(m.t==='members'){members=m.list;lcd();}
+              else if(m.t==='chat'){const d=document.createElement('div');const b=document.createElement('b');b.textContent=m.name+':';d.append(b,document.createTextNode(m.text));$('chat').appendChild(d);$('chat').scrollTop=1e9;}
+              else if(m.t==='talk'){if(m.on&&m.id!==myId)rx.add(m.id);else{rx.delete(m.id);if(!m.on&&m.id!==myId)beep();}lcd();}
+              else if(m.t==='busy'){$('l3').textContent=t('busy');stopTalk(true);}
             };
-            ws.onclose=()=>{$('conn').textContent='সংযোগ বিচ্ছিন্ন';if($('radio').classList.contains('on')){$('status').textContent='সংযোগ কেটে গেছে… আবার খোঁজা হচ্ছে';setTimeout(()=>location.reload(),2500);}};
+            ws.onclose=()=>{lcd();cstat();if($('s-home').classList.contains('on')){$('l3').textContent=t('lost');setTimeout(()=>location.reload(),2500);}};
           }
           function findHost(){
             if(!window.Android){$('srv').value=$('srv').value||location.host;connect();return;}
-            if(hosting)return;$('conn').textContent='সার্ভার খোঁজা হচ্ছে…';Android.scan();let n=0;
-            const t=setInterval(()=>{const f=Android.found();
-              if(f){clearInterval(t);$('srv').value=f;connect();}
-              else if(++n>14){clearInterval(t);$('conn').textContent='সার্ভার পাওয়া যায়নি। একজনকে "হোস্ট" চালু করতে বলুন, তারপর "আবার খুঁজুন" চাপুন।';}},700);
-          }
+            if(hosting)return;searching=true;cstat();Android.scan();let n=0;
+            const iv=setInterval(()=>{const f=Android.found();
+              if(f){clearInterval(iv);$('srv').value=f;connect();}
+              else if(++n>14){clearInterval(iv);searching=false;cstat();}},700);}
           $('rescan').onclick=findHost;$('srv').onchange=connect;
           if(window.Android){$('host').style.display='';
-            $('host').onclick=()=>{hosting=!hosting;const ip=Android.host(hosting);
-              if(hosting){$('srv').value='127.0.0.1:8765';$('conn').textContent='আপনি হোস্ট'+(ip?' ('+ip+')':' — ওয়াইফাইতে সংযুক্ত নন');$('host').textContent='হোস্ট বন্ধ করুন';setTimeout(connect,900);}
-              else{$('host').textContent='এই ফোনকে হোস্ট বানান';findHost();}};}
-          findHost();
+            $('host').onclick=()=>{hosting=!hosting;const ip=Android.host(hosting);if(ip==='NOPERM'){hosting=false;$('cstat').textContent=t('mic');return;}
+              if(hosting){$('srv').value='127.0.0.1:8765';$('cstat').textContent=t('connected')+(ip?' · '+ip+':8765':'');setTimeout(connect,900);}
+              else findHost();$('host').textContent=t(hosting?'unhost':'host');};}
 
-          function drawMembers(list){$('members').innerHTML=list.map(u=>`<div class="mem${u.talking?' talking':''}"><div class="pic">${avatar(u.avatar)}</div>${u.name.replace(/</g,'&lt;')}${u.id===myId?' (আপনি)':''}</div>`).join('');}
-          function status(){$('ptt').classList.toggle('rx',rx.size>0);if(inLine)$('status').textContent=rx.size?'কেউ কথা বলছেন…':'স্পেস চেপে ধরেও কথা বলা যায়';}
-
-          $('enter').onclick=async()=>{
-            $('lmsg').textContent='';
-            if(!base)return $('lmsg').textContent='আগে একটি কলসাইন বেছে নিন।';
-            if(!ws||ws.readyState!==1)return $('lmsg').textContent='সার্ভারের সাথে সংযোগ হয়নি।';
-            try{stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});}
-            catch(e){return $('lmsg').textContent='মাইক্রোফোনের অনুমতি দিন।';}
+          $('start').onclick=async()=>{
+            showErr('');if(base&&isTaken(base)&&!$('num').value.trim())return showErr(t('e_taken').replace('{n}',base).replace('{b}',base));if(!base)return showErr(t('pickfirst'));if(!on())return showErr(t('nocon'));
+            try{stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});}catch(e){return showErr(t('mic'));}
             ctx=new (window.AudioContext||window.webkitAudioContext)();await ctx.resume();
             const src=ctx.createMediaStreamSource(stream);proc=ctx.createScriptProcessor(4096,1,1);
-            proc.onaudioprocess=e=>{if(!talking||ws.readyState!==1)return;
-              const inp=e.inputBuffer.getChannelData(0),ratio=ctx.sampleRate/16000,n=Math.floor(inp.length/ratio),out=new Int16Array(n);
-              for(let i=0;i<n;i++){const s=Math.max(-1,Math.min(1,inp[Math.floor(i*ratio)]));out[i]=s<0?s*32768:s*32767;}
-              ws.send(out.buffer);};
+            proc.onaudioprocess=e=>{if(!talking||!on())return;const inp=e.inputBuffer.getChannelData(0),r=ctx.sampleRate/16000,n=Math.floor(inp.length/r),out=new Int16Array(n);
+              for(let i=0;i<n;i++){const s=Math.max(-1,Math.min(1,inp[Math.floor(i*r)]));out[i]=s<0?s*32768:s*32767;}ws.send(out.buffer);};
             const mute=ctx.createGain();mute.gain.value=0;src.connect(proc);proc.connect(mute);mute.connect(ctx.destination);
-            ws.send(JSON.stringify({t:'login',base,num:$('num').value,avatar:av}));
-          };
+            try{localStorage.setItem('prof',JSON.stringify({l:letter,b:base,a:av}));}catch(e){}
+            $('me-av').innerHTML=avatar(av);ws.send(JSON.stringify({t:'login',base,num:$('num').value,avatar:av}));};
 
-          function play(buf){if(!ctx)return;const i16=new Int16Array(buf),f=new Float32Array(i16.length);
-            for(let i=0;i<f.length;i++)f[i]=i16[i]/32768;
+          function play(buf){if(!ctx)return;const i16=new Int16Array(buf),f=new Float32Array(i16.length);for(let i=0;i<f.length;i++)f[i]=i16[i]/32768;
             const ab=ctx.createBuffer(1,f.length,16000);ab.copyToChannel(f,0);const s=ctx.createBufferSource();s.buffer=ab;s.connect(ctx.destination);
             nextT=Math.max(nextT,ctx.currentTime+0.12);s.start(nextT);nextT+=ab.duration;}
           function beep(){if(!ctx)return;const o=ctx.createOscillator(),g=ctx.createGain();o.frequency.value=1000;g.gain.value=.08;o.connect(g);g.connect(ctx.destination);o.start();o.stop(ctx.currentTime+.08);}
-
-          function startTalk(){if(talking||$('ptt').disabled||rx.size)return;talking=true;$('ptt').classList.add('tx');$('ptt').textContent='কথা বলছেন…';ws.send(JSON.stringify({t:'ptt',on:true}));}
-          function stopTalk(silent){if(!talking)return;talking=false;$('ptt').classList.remove('tx');$('ptt').textContent='চেপে ধরে কথা বলুন';if(!silent)ws.send(JSON.stringify({t:'ptt',on:false}));beep();}
           const p=$('ptt');
+          function startTalk(){if(talking||p.disabled||rx.size)return;talking=true;p.classList.add('tx');p.textContent=t('tx');ws.send(JSON.stringify({t:'ptt',on:true}));}
+          function stopTalk(silent){if(!talking)return;talking=false;p.classList.remove('tx');p.textContent=t('hold');if(!silent&&on())ws.send(JSON.stringify({t:'ptt',on:false}));beep();}
+          p.addEventListener('contextmenu',e=>e.preventDefault());
           p.addEventListener('pointerdown',e=>{p.setPointerCapture(e.pointerId);startTalk();});
-          ['pointerup','pointercancel'].forEach(t=>p.addEventListener(t,()=>stopTalk()));
-          addEventListener('keydown',e=>{if(e.code==='Space'&&!e.repeat&&e.target.tagName!=='INPUT'&&$('radio').classList.contains('on')){e.preventDefault();startTalk();}});
-          addEventListener('keyup',e=>{if(e.code==='Space')stopTalk();});
-          addEventListener('blur',()=>stopTalk());
+          ['pointerup','pointercancel'].forEach(k=>p.addEventListener(k,()=>stopTalk()));
+          addEventListener('keydown',e=>{if(e.code==='Space'&&!e.repeat&&e.target.tagName!=='INPUT'&&$('s-home').classList.contains('on')){e.preventDefault();startTalk();}});
+          addEventListener('keyup',e=>{if(e.code==='Space')stopTalk();});addEventListener('blur',()=>stopTalk());
 
-          $('create').onclick=()=>ws.send(JSON.stringify({t:'create',code:$('code').value}));
-          $('join').onclick=()=>ws.send(JSON.stringify({t:'join',code:$('code').value}));
-          $('leave').onclick=()=>ws.send(JSON.stringify({t:'leave'}));
-          const sendChat=()=>{const t=$('ctext').value.trim();if(t&&inLine&&ws.readyState===1){ws.send(JSON.stringify({t:'chat',text:t}));$('ctext').value='';}};
+          $('create').onclick=()=>on()&&ws.send(JSON.stringify({t:'create',code:$('code').value}));
+          $('join').onclick=()=>on()&&ws.send(JSON.stringify({t:'join',code:$('code').value}));
+          $('bLeave').onclick=()=>on()&&ws.send(JSON.stringify({t:'leave'}));
+          const sendChat=()=>{const x=$('ctext').value.trim();if(x&&inLine&&on()){ws.send(JSON.stringify({t:'chat',text:x}));$('ctext').value='';}};
           $('csend').onclick=sendChat;$('ctext').onkeydown=e=>{if(e.key==='Enter')sendChat();};
+
+          try{const sv=JSON.parse(localStorage.getItem('prof')||'{}');
+            if(CALLS[sv.l]){letter=sv.l;if(CALLS[sv.l].includes(sv.b)){base=sv.b;$('pick').textContent=base;}}if(sv.a>=0&&sv.a<32)av=sv.a;}catch(e){}
+          $('chp').onclick=()=>location.reload();
+          drawAvs();applyLang();findHost();
           </script></body></html>
           WALKIE_EOF_9
       - uses: actions/setup-java@v4
