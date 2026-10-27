@@ -76,11 +76,15 @@ jobs:
           <?xml version="1.0" encoding="utf-8"?>
           <vector xmlns:android="http://schemas.android.com/apk/res/android"
               android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
-              <path android:fillColor="#121A2B" android:pathData="M0,0h108v108h-108z"/>
-              <path android:fillColor="#7BE0D0" android:pathData="M60,12h6v24h-6z"/>
-              <path android:fillColor="#EAF0FF" android:pathData="M42,34h24a8,8 0 0 1 8,8v44a8,8 0 0 1 -8,8h-24a8,8 0 0 1 -8,-8v-44a8,8 0 0 1 8,-8z"/>
-              <path android:fillColor="#121A2B" android:pathData="M42,44h24v4h-24z M42,52h24v4h-24z M42,60h24v4h-24z"/>
-              <path android:fillColor="#FF5C8A" android:pathData="M54,72m-6,0a6,6 0 1 0 12,0a6,6 0 1 0 -12,0"/>
+              <path android:fillColor="#0F172A" android:pathData="M0,0h108v108h-108z"/>
+              <path android:fillColor="#FFD32F" android:pathData="M62,14h6v18h-6z"/>
+              <path android:strokeColor="#7BE0D0" android:strokeWidth="2.5" android:strokeLineCap="round" android:pathData="M73,18a8,8 0 0 1 0,12M78,13a14,14 0 0 1 0,22"/>
+              <path android:fillColor="#FFD32F" android:pathData="M42,30h24a8,8 0 0 1 8,8v48a8,8 0 0 1 -8,8h-24a8,8 0 0 1 -8,-8v-48a8,8 0 0 1 8,-8z"/>
+              <path android:fillColor="#0F172A" android:pathData="M40,36h28a3,3 0 0 1 3,3v14a3,3 0 0 1 -3,3h-28a3,3 0 0 1 -3,-3v-14a3,3 0 0 1 3,-3z"/>
+              <path android:fillColor="#8EE04A" android:pathData="M41,38h26a2,2 0 0 1 2,2v12a2,2 0 0 1 -2,2h-26a2,2 0 0 1 -2,-2v-12a2,2 0 0 1 2,-2z"/>
+              <path android:fillColor="#2E5A0C" android:pathData="M43,42h8v2h-8zM43,47h14v2h-14z"/>
+              <path android:fillColor="#B58F00" android:pathData="M40,62h28v3h-28zM40,69h28v3h-28zM40,76h28v3h-28z"/>
+              <path android:fillColor="#FF5C8A" android:pathData="M54,89m-4,0a4,4 0 1 0 8,0a4,4 0 1 0 -8,0"/>
           </vector>
           WALKIE_EOF_5
           mkdir -p "$(dirname app/src/main/java/com/walkie/app/MainActivity.kt)"
@@ -225,7 +229,7 @@ jobs:
 
           /** The same relay as server.js, running inside the phone that is "host". */
           class HostServer(port: Int) : WebSocketServer(InetSocketAddress(port)) {
-              class C(val id: Int, val name: String, val avatar: Int) { var room: String? = null }
+              class C(val id: Int, val name: String, val avatar: Int) { var room: String? = null; var win = 0L; var cnt = 0 }
               class Room { val members = LinkedHashSet<WebSocket>(); var talker: WebSocket? = null }
 
               private val calls = "Adrian Aegis Alaric Anton Archer Ares Atlas Aurelio Bishop Blade Boris Bravo Bruno Beckett Bond Baron Cain Carlos Cassian Charlie Cipher Cobra Cole Cyrus Damien Dante Delta Dimitri Dominic Draco Dutch Drake Echo Eclipse Elias Enzo Ethan Evander Ezio Edmund Falcon Felix Fenix Finn Foxtrot Frost Fabian Franco Gabriel Gideon Ghost Goliath Gray Griffin Gunnar Garrett Hades Hawk Hector Hugo Hunter Harlan Hotel Helios Icarus Igor Ivan India Ignis Ironside Isaac Ivo Jackal Jaeger Jasper Jericho Juliet Julian Jett Jagger Kane Kilo Kai Kestrel Knox Kovac Kyle Kronos Lazarus Leon Lima Lucian Lynx Logan Lorenzo Luther Magnus Marcus Maverick Mike Mercury Miles Morgan Maximus Nash Nero Nikolai November Noir Nathan Neo Nomad Orion Oscar Osiris Otto Oberon Onyx Omar Odin Papa Phantom Phoenix Pierce Pablo Prime Python Percival Quentin Quebec Quinn Quasar Quill Quincy Quest Quartz Rafael Raven Rex Romeo Ronin Ryker Roman Rogue Sasha Sierra Silas Spectre Stefan Storm Sterling Sergei Tango Thane Titan Tobias Tristan Tyson Talon Tycho Ulysses Uniform Uriel Ulric Umar Ultra Urban Ugo Victor Vance Valentin Viper Vlad Vector Vincent Vesper Walker Warden Whiskey Wolf Wyatt Wraith Winston Wesley Xander Xavier Xenon Xerxes Xray Xeno Xiang Xylo Yankee Yuri Yago Yusuf Yeager Yorick Yves Yasha Zulu Zane Zeus Zephyr Zorro Zack Zoran Zenith".split(" ")
@@ -263,7 +267,7 @@ jobs:
                   pushMembers(r)
               }
 
-              override fun onOpen(w: WebSocket, h: ClientHandshake) { synchronized(this) { pushTaken() } }
+              override fun onOpen(w: WebSocket, h: ClientHandshake) { synchronized(this) { if (connections.size > 100) { w.close(); return }; pushTaken() } }
               override fun onClose(w: WebSocket, code: Int, reason: String?, remote: Boolean) {
                   synchronized(this) { clients[w]?.let { leave(w); names.remove(it.name.lowercase()); clients.remove(w) }; pushTaken() }
               }
@@ -280,6 +284,7 @@ jobs:
               override fun onMessage(w: WebSocket, text: String) { synchronized(this) {
                   val m = try { JSONObject(text) } catch (e: Exception) { return }
                   val c = clients[w]
+                  if (c != null) { val now = System.currentTimeMillis(); if (now - c.win > 1000) { c.win = now; c.cnt = 0 }; if (++c.cnt > 25) return }
                   when (m.optString("t")) {
                       "login" -> if (c == null) {
                           val base = calls.firstOrNull { it == m.optString("base") } ?: return err(w, "bad_call")
@@ -368,21 +373,24 @@ jobs:
           .sw{width:38px;height:38px;border-radius:50%;border:3px solid #111}.sw[aria-pressed=true]{box-shadow:0 0 0 3px #fff,0 0 0 6px #111}
           .sty{background:#111;border:0;display:grid;place-items:center;padding:0}.sty[aria-pressed=true]{background:var(--pink)}.sty svg{width:24px;height:24px}
           #ptt{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}#pico{width:44px;height:44px;fill:#fff}#ptt.tx #pico{fill:#2b0614}#ptt.rx{outline:0;background:#4d8a0f}
+          .card{background:#fff;border-radius:20px;padding:14px 16px;margin:14px 0}
+          h1{font-weight:800;letter-spacing:-.03em}
+          .av{aspect-ratio:auto;overflow:visible;background:#fff7d1;border:3px solid transparent;border-radius:14px;padding:3px 3px 6px;width:84px;display:flex;flex-direction:column;align-items:center}
+          .av .pic{display:block;width:100%;aspect-ratio:5/8;overflow:hidden;border-radius:11px}.cn{font-size:12px;font-weight:700;margin-top:4px}
           </style></head><body>
 
           <section id="s-setup" class="scr on">
-            <div class="top"><h1>Betar Radio</h1><button class="ib" id="g1" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M4 6h10v2H4zM18 6h2v2h-2zM14 4h4v6h-4zM4 11h2v2H4zM10 11h10v2H10zM6 9h4v6H6zM4 16h10v2H4zM18 16h2v2h-2zM14 14h4v6h-4z"/></svg></button></div>
+            <div class="top"><h1>Betar Radio</h1><button class="ib" id="g1" style="display:none" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M4 6h10v2H4zM18 6h2v2h-2zM14 4h4v6h-4zM4 11h2v2H4zM10 11h10v2H10zM6 9h4v6H6zM4 16h10v2H4zM18 16h2v2h-2zM14 14h4v6h-4z"/></svg></button></div>
             <p data-i="tag"></p>
             <h2 data-i="av"></h2><div id="avs"></div>
             <h2 data-i="call"></h2><div class="tabs" id="letters" role="tablist"></div><div class="grid" id="calls"></div>
             <div class="row" style="margin-top:12px"><b id="pick">—</b><input id="num" inputmode="numeric" maxlength="2" pattern="[0-9]*" data-ph="num" disabled style="max-width:130px"><small id="nh"></small></div>
             <div class="msg" id="e1" role="alert"></div>
-            <div class="row"><button class="btn" id="start" data-i="start"></button><span id="cs1"></span></div>
+            <div class="row"><button class="btn" id="start" data-i="start"></button></div>
           </section>
 
           <section id="s-home" class="scr">
-            <div class="top"><div class="row"><span class="m" id="me-av" style="width:46px;height:46px;border-color:#111"></span><b id="me"></b></div>
-              <button class="ib" id="g2" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M4 6h10v2H4zM18 6h2v2h-2zM14 4h4v6h-4zM4 11h2v2H4zM10 11h10v2H10zM6 9h4v6H6zM4 16h10v2H4zM18 16h2v2h-2zM14 14h4v6h-4z"/></svg></button></div>
+            <div class="top"><div class="row"><span class="m" id="me-av" style="width:46px;height:46px;border-color:#111"></span><b id="me"></b></div></div>
             <div class="radio"><div class="ant"></div>
               <div class="unit"><div class="lcd"><div id="l1"></div><div id="mems"></div><div id="l3"></div><div id="l2"></div></div>
                 <div class="keys">
@@ -398,6 +406,8 @@ jobs:
           <section id="s-lines" class="scr">
             <div class="top"><div class="row"><span class="m" id="me-av2" style="width:46px;height:46px;border-color:#111"></span><b id="me2"></b></div>
               <button class="ib" id="g3" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M4 6h10v2H4zM18 6h2v2h-2zM14 4h4v6h-4zM4 11h2v2H4zM10 11h10v2H10zM6 9h4v6H6zM4 16h10v2H4zM18 16h2v2h-2zM14 14h4v6h-4z"/></svg></button></div>
+            <div class="card"><h2 data-i="conn" style="margin:0 0 6px"></h2><div id="cstat" style="font-weight:700"></div><div class="row" style="margin-top:8px"><button class="btn" id="rescan" data-i="again"></button><button class="btn alt" id="host" style="display:none;border:2px solid #111"></button></div>
+            <details style="margin-top:10px"><summary data-i="manual"></summary><input id="srv" placeholder="192.168.1.5:8765" autocapitalize="off"></details></div>
             <h1 data-i="linet"></h1>
             <input id="code" maxlength="32" autocomplete="off" data-ph="code">
             <div class="row" style="margin-top:10px"><button class="btn" id="create" data-i="create"></button><button class="btn alt" id="join" style="border:2px solid #111" data-i="join"></button></div>
@@ -414,13 +424,10 @@ jobs:
 
           <div class="sheet" id="sh-set"><div>
             <div class="top"><h2 data-i="settings" style="margin:0"></h2><button class="btn alt" data-close data-i="close"></button></div>
-            <h2 data-i="lang"></h2><div class="grid" id="langs"></div>
+            <details id="dl" class="card" style="margin:0 0 6px"><summary style="font-weight:700;cursor:pointer"><span data-i="lang"></span>: <b id="curlang"></b></summary><div class="grid" id="langs" style="margin-top:10px"></div></details>
             <div style="margin-top:12px"><button class="btn alt" id="chp" data-i="chp" style="border:2px solid #111"></button></div>
             <h2 data-i="theme"></h2><div class="grid" id="themes"></div>
             <h2 data-i="pttstyle"></h2><div class="grid" id="ptts"></div>
-            <h2 data-i="conn"></h2><div id="cstat" style="font-weight:700"></div>
-            <div class="row" style="margin-top:8px"><button class="btn" id="rescan" data-i="again"></button><button class="btn alt" id="host" style="display:none;border:2px solid #111"></button></div>
-            <details style="margin-top:10px"><summary data-i="manual"></summary><input id="srv" placeholder="192.168.1.5:8765" autocapitalize="off"></details>
             <div style="margin-top:18px"><button class="btn" id="lo" style="background:#b3261e" data-i="logout"></button></div>
           </div></div>
 
@@ -428,8 +435,10 @@ jobs:
           const $=id=>document.getElementById(id);
           const CALLS={"A":["Adrian","Aegis","Alaric","Anton","Archer","Ares","Atlas","Aurelio"],"B":["Bishop","Blade","Boris","Bravo","Bruno","Beckett","Bond","Baron"],"C":["Cain","Carlos","Cassian","Charlie","Cipher","Cobra","Cole","Cyrus"],"D":["Damien","Dante","Delta","Dimitri","Dominic","Draco","Dutch","Drake"],"E":["Echo","Eclipse","Elias","Enzo","Ethan","Evander","Ezio","Edmund"],"F":["Falcon","Felix","Fenix","Finn","Foxtrot","Frost","Fabian","Franco"],"G":["Gabriel","Gideon","Ghost","Goliath","Gray","Griffin","Gunnar","Garrett"],"H":["Hades","Hawk","Hector","Hugo","Hunter","Harlan","Hotel","Helios"],"I":["Icarus","Igor","Ivan","India","Ignis","Ironside","Isaac","Ivo"],"J":["Jackal","Jaeger","Jasper","Jericho","Juliet","Julian","Jett","Jagger"],"K":["Kane","Kilo","Kai","Kestrel","Knox","Kovac","Kyle","Kronos"],"L":["Lazarus","Leon","Lima","Lucian","Lynx","Logan","Lorenzo","Luther"],"M":["Magnus","Marcus","Maverick","Mike","Mercury","Miles","Morgan","Maximus"],"N":["Nash","Nero","Nikolai","November","Noir","Nathan","Neo","Nomad"],"O":["Orion","Oscar","Osiris","Otto","Oberon","Onyx","Omar","Odin"],"P":["Papa","Phantom","Phoenix","Pierce","Pablo","Prime","Python","Percival"],"Q":["Quentin","Quebec","Quinn","Quasar","Quill","Quincy","Quest","Quartz"],"R":["Rafael","Raven","Rex","Romeo","Ronin","Ryker","Roman","Rogue"],"S":["Sasha","Sierra","Silas","Spectre","Stefan","Storm","Sterling","Sergei"],"T":["Tango","Thane","Titan","Tobias","Tristan","Tyson","Talon","Tycho"],"U":["Ulysses","Uniform","Uriel","Ulric","Umar","Ultra","Urban","Ugo"],"V":["Victor","Vance","Valentin","Viper","Vlad","Vector","Vincent","Vesper"],"W":["Walker","Warden","Whiskey","Wolf","Wyatt","Wraith","Winston","Wesley"],"X":["Xander","Xavier","Xenon","Xerxes","Xray","Xeno","Xiang","Xylo"],"Y":["Yankee","Yuri","Yago","Yusuf","Yeager","Yorick","Yves","Yasha"],"Z":["Zulu","Zane","Zeus","Zephyr","Zorro","Zack","Zoran","Zenith"]};
           const SK=['#ffe3d1','#f6c9a3','#e0a878','#b9774a','#8a5233'],HC=['#2b2d42','#e63946','#4cc9f0','#f9c74f','#9d4edd','#43aa8b','#ff8fab','#e5e5e5','#6b3f1d','#ff7f11'],EC=['#3a86ff','#e63946','#2a9d8f','#9d4edd','#7a4b1e'],BG=['#cfe8ff','#ffd6e0','#d8f5d0','#fff0b8','#e4d9ff','#ffd9b5'],OC=['#e63946','#3a86ff','#2a9d8f','#9d4edd','#f4a261','#264653','#ff5c8a','#6d597a'];
+          const CNM=['Dax','Orlo','Brock','Teo','Ravi','Soren','Mateo','Idris','Pavel','Hiro','Cass','Nils','Omar','Ezra','Luka','Arlo','Tariq','Boaz','Remy','Joss','Anil','Felix','Rurik','Dante'],CNF=['Mira','Sana','Lexa','Nori','Zia','Petra','Ayla','Juno','Thea','Rhea','Kaia','Livia','Anya','Suki','Noor','Vera','Esme','Talia','Indra','Mei','Zara','Odile','Rina','Selma'];
+          const CN=i=>(i%2?CNM:CNF)[i>>1];
           function avatar(i,full){
-            const g=i%2,j=i>>1,st=j%6,bd=j%4,of=(j*3+g)%4,fc=g?[0,1,2,3,4,0][(j+1)%6]:0,gl=j%5===2;
+            const g=i%2,j=i>>1,st=j%6,bd=j%4,of=(j*3+g)%4,fc=g?[0,1,2,3,4,0][(j+1)%6]:0,acc=[0,1,2,3,4,0][(i*5+j)%6],gl=j%5===2&&acc!==4;
             const hc=HC[(j*3+g)%10],sk=SK[(j*2+g)%5],ec=EC[(j+g)%5],bg=BG[(i*5)%6],oc=OC[(j*7+g*3)%8],pc=['#264653','#3d405b','#5c4033','#1d3557'][(j+g)%4];
             const tw=[24,28,38,36][bd],aw=[8,9,12,15][bd],L=50-tw/2,R=50+tw/2,suit=g&&of===3,dress=!g&&of===3,longp=of===2;
             const top=suit?'#222':(g&&of===1?sk:oc),lw=tw*.42,lx=[50-tw*.23-lw/2,50+tw*.23-lw/2];
@@ -440,6 +449,7 @@ jobs:
             s+=dress?`<path d="M${L} 62H${R}L${R+9} 122H${L-9}Z" fill="${oc}"/>`:`<rect x="${L}" y="60" width="${tw}" height="50" rx="9" fill="${top}"/>`+(bd===2?`<ellipse cx="50" cy="96" rx="${tw/2+3}" ry="15" fill="${top}"/>`:'')+`<rect x="${L}" y="104" width="${tw}" height="10" fill="${pc}"/>`;
             if(g&&of===1)s+=`<path d="M50 66V104M${L+3} 80Q50 88 ${R-3} 80${bd===3?`M${L+8} 90H${R-8}M${L+8} 98H${R-8}`:''}" stroke="#0003" stroke-width="1.2" fill="none"/>`;
             if(suit)s+='<path d="M46 62h8l-2 4 3 26-5 6-5-6 3-26z" fill="#c1121f"/>';
+            if(!dress&&!suit&&of!==1&&j%3===0)s+=`<rect x="${L+2}" y="62" width="${tw*.24}" height="46" fill="#3b4a3b"/><rect x="${R-2-tw*.24}" y="62" width="${tw*.24}" height="46" fill="#3b4a3b"/><rect x="${L+4}" y="92" width="${tw*.2}" height="8" fill="#2c382c"/>`;
             const sl=dress?10:[18,0,40,40][of];
             [L-aw+2,R-2].forEach(x=>{s+=`<rect x="${x}" y="62" width="${aw}" height="44" rx="${aw/2}" fill="${sk}"/>`+(sl?`<rect x="${x}" y="62" width="${aw}" height="${sl}" rx="${aw/2}" fill="${suit?'#222':oc}"/>`:'')+`<circle cx="${x+aw/2}" cy="107" r="${aw/2}" fill="${sk}"/>`;});
             s+=`<rect x="45" y="52" width="10" height="12" fill="${sk}"/><circle cx="34" cy="40" r="3.5" fill="${sk}"/><circle cx="66" cy="40" r="3.5" fill="${sk}"/><ellipse cx="50" cy="38" rx="${bd===2?18:16}" ry="18" fill="${sk}"/>${eye(43)}${eye(57)}<path d="M38 32Q43 29 47 32M53 32Q57 29 62 32" stroke="${hc}" stroke-width="1.6" fill="none"/>`;
@@ -451,6 +461,11 @@ jobs:
             const cap='M33 34Q33 14 50 14Q67 14 67 34Q60 26 50 26Q40 26 33 34Z';
             const fh=g?[cap,'M33 34L35 16L41 23L46 9L51 22L57 10L61 23L67 34Q58 26 50 28Q42 26 33 34Z','M44 24L47 4L53 4L56 24Q50 20 44 24Z','',cap,cap][st]:(st===4?'M33 38Q31 12 50 12Q69 12 67 38L62 27Q50 33 40 22L33 38Z':'M33 36Q34 14 50 14Q66 14 67 36Q58 26 50 30Q42 26 33 36Z');
             s+=fh?`<path d="${fh}" fill="${hc}"/>`:'<ellipse cx="44" cy="23" rx="5" ry="2.5" fill="#fff" opacity=".4"/>';
+            const cc=OC[(j*5+g)%8];
+            if(acc===1)s+=`<path d="M32 28Q50 8 68 28Q60 22 50 22Q40 22 32 28Z" fill="${cc}"/><rect x="31" y="26" width="38" height="4" rx="2" fill="${cc}"/><rect x="36" y="29" width="28" height="2" fill="#0003"/>`;
+            if(acc===2)s+='<rect x="33" y="23" width="34" height="4.5" fill="#c1121f"/><path d="M66 24l8 4-8 2z" fill="#c1121f"/>';
+            if(acc===3)s+='<path d="M33 38Q33 14 50 14Q67 14 67 38" fill="none" stroke="#222" stroke-width="3"/><rect x="29" y="34" width="6" height="12" rx="3" fill="#222"/><rect x="65" y="34" width="6" height="12" rx="3" fill="#222"/>';
+            if(acc===4)s+='<rect x="35" y="36" width="13" height="8" rx="3" fill="#111"/><rect x="52" y="36" width="13" height="8" rx="3" fill="#111"/><path d="M48 39h4" stroke="#111" stroke-width="1.5"/>';
             if(gl)s+='<g fill="none" stroke="#222" stroke-width="1.4"><circle cx="43" cy="40" r="6.5"/><circle cx="57" cy="40" r="6.5"/><path d="M49.5 40h1"/></g>';
             return `<svg viewBox="${full?'0 0 100 160':'20 4 60 60'}" aria-hidden="true">${s}</svg>`;
           }
@@ -475,13 +490,13 @@ jobs:
           function applyLang(){document.documentElement.lang=lang;document.documentElement.dir=(lang==='ur'&&T.ur)?'rtl':'ltr';
             document.querySelectorAll('[data-i]').forEach(e=>e.textContent=t(e.dataset.i));
             document.querySelectorAll('[data-ph]').forEach(e=>e.placeholder=t(e.dataset.ph));
-            $('host').textContent=t(hosting?'unhost':'host');
+            $('host').textContent=t(hosting?'unhost':'host');$('curlang').textContent=LANGS[lang];
             $('langs').innerHTML='';Object.keys(LANGS).forEach(k=>{const b=document.createElement('button');b.className='chip';b.textContent=LANGS[k];b.setAttribute('aria-pressed',k===lang);
-              b.onclick=()=>{lang=k;try{localStorage.setItem('lang',k);}catch(e){}applyLang();};$('langs').appendChild(b);});
-            $('llines').innerHTML='';Object.keys(LANGS).forEach(k=>{const b=document.createElement('button');b.className='chip';b.textContent=LANGS[k];b.onclick=()=>on()&&ws.send(JSON.stringify({t:'lang',code:k}));$('llines').appendChild(b);});
+              b.onclick=()=>{lang=k;try{localStorage.setItem('lang',k);}catch(e){}$('dl').open=false;applyLang();};$('langs').appendChild(b);});
+            $('llines').innerHTML='';Object.keys(LANGS).forEach(k=>{const b=document.createElement('button');b.className='chip';b.textContent=LANGS[k];b.onclick=()=>ok2()&&ws.send(JSON.stringify({t:'lang',code:k}));$('llines').appendChild(b);});
             drawAvs();drawCalls();lcd();cstat();}
 
-          let letter='A',loggedIn=false,base=null,av=0,taken=[],ws=null,myId=null,inLine=false,lineName='',members=[],talking=false,stream=null,ctx=null,proc=null,nextT=0,rx=new Set(),hosting=false,searching=false;
+          let letter='A',loggedIn=false,profileReady=false,base=null,av=0,taken=[],ws=null,myId=null,inLine=false,lineName='',members=[],talking=false,stream=null,ctx=null,proc=null,nextT=0,rx=new Set(),hosting=false,searching=false;
 
           function isTaken(n){return taken.some(x=>x.toLowerCase()===n.toLowerCase());}
           function drawCalls(){
@@ -494,16 +509,16 @@ jobs:
           }
           function drawAvs(){const box=$('avs');box.innerHTML='';
             [[1,'men'],[0,'women']].forEach(([g,k])=>{const h=document.createElement('div');h.className='sub';h.textContent=t(k);const row=document.createElement('div');row.className='strip';
-              for(let i=g;i<48;i+=2){const b=document.createElement('button');b.className='av';b.innerHTML=avatar(i,true);b.setAttribute('aria-label','Character '+(i+1));b.setAttribute('aria-pressed',i===av);
+              for(let i=g;i<48;i+=2){const b=document.createElement('button');b.className='av';b.innerHTML=`<span class="pic">${avatar(i,true)}</span><span class="cn">${CN(i)}</span>`;b.setAttribute('aria-label',CN(i));b.setAttribute('aria-pressed',i===av);
                 b.onclick=()=>{av=i;box.querySelectorAll('.av').forEach(x=>x.setAttribute('aria-pressed',x===b));};row.appendChild(b);}
               box.append(h,row);});}
           const open=id=>$(id).classList.add('on'),shut=()=>document.querySelectorAll('.sheet').forEach(s=>s.classList.remove('on'));
           document.querySelectorAll('[data-close]').forEach(b=>b.onclick=shut);
-          $('g1').onclick=$('g2').onclick=$('g3').onclick=()=>open('sh-set');
+          $('g3').onclick=()=>open('sh-set');
           const show=id=>{document.querySelectorAll('.scr').forEach(x=>x.classList.toggle('on',x.id===id));$('bBack').style.display=(id==='s-lines'&&inLine)?'':'none';scrollTo(0,0);};
           $('bChat').onclick=()=>open('sh-chat');$('bLine').onclick=()=>show('s-lines');$('bBack').onclick=()=>show('s-home');
           const on=()=>ws&&ws.readyState===1;
-          function cstat(){const s=searching?t('search'):on()?t('connected')+' · '+$('srv').value:t('nohost');$('cstat').textContent=s;$('cs1').textContent=on()?'● '+t('connected'):'';}
+          function cstat(){const s=searching?t('search'):on()?t('connected')+' · '+$('srv').value:t('nohost');$('cstat').textContent=s;}
           function lcd(){$('l1').textContent=on()?t('connected'):t('disc');
             $('l2').textContent=inLine?'# '+lineName:t('noline');
             const who=members.find(u=>rx.has(u.id));$('l3').textContent=who?who.name+' '+t('speaking'):(inLine?members.length+' '+t('online'):'');
@@ -516,13 +531,13 @@ jobs:
             const a=$('srv').value.trim().replace(/^(wss?|https?):\/\//,'');if(!a)return;
             if(ws){ws.onclose=null;ws.close();}
             ws=new WebSocket('ws://'+a);ws.binaryType='arraybuffer';
-            ws.onopen=()=>{searching=false;cstat();lcd();};
+            ws.onopen=()=>{searching=false;cstat();lcd();if(profileReady&&!loggedIn)sendLogin();};
             ws.onmessage=ev=>{
               if(typeof ev.data!=='string')return play(ev.data);
               const m=JSON.parse(ev.data);
               if(m.t==='taken'){taken=m.taken;drawCalls();}
-              else if(m.t==='error')showErr(errText(m));
-              else if(m.t==='welcome'){$('me').textContent=$('me2').textContent=m.name;loggedIn=true;show('s-lines');lcd();}
+              else if(m.t==='error'){if(profileReady&&!loggedIn){profileReady=false;show('s-setup');}showErr(errText(m));}
+              else if(m.t==='welcome'){$('me').textContent=$('me2').textContent=m.name;loggedIn=true;cstat();lcd();}
               else if(m.t==='entered'){myId=m.you;inLine=true;lineName=m.room.startsWith('l:')?LANGS[m.room.slice(2)]:m.room.replace(/^p:/,'');members=m.list;$('chat').innerHTML='';showErr('');shut();show('s-home');lcd();}
               else if(m.t==='left'){inLine=false;stopTalk();members=[];show('s-lines');lcd();}
               else if(m.t==='members'){members=m.list;lcd();}
@@ -545,7 +560,7 @@ jobs:
               else findHost();$('host').textContent=t(hosting?'unhost':'host');};}
 
           $('start').onclick=async()=>{
-            showErr('');if(base&&isTaken(base)&&!$('num').value.trim())return showErr(t('e_taken').replace('{n}',base).replace('{b}',base));if(!base)return showErr(t('pickfirst'));if(!on())return showErr(t('nocon'));
+            showErr('');if(base&&isTaken(base)&&!$('num').value.trim())return showErr(t('e_taken').replace('{n}',base).replace('{b}',base));if(!base)return showErr(t('pickfirst'));
             try{stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});}catch(e){return showErr(t('mic'));}
             ctx=new (window.AudioContext||window.webkitAudioContext)();await ctx.resume();
             const src=ctx.createMediaStreamSource(stream);proc=ctx.createScriptProcessor(4096,1,1);
@@ -553,7 +568,9 @@ jobs:
               for(let i=0;i<n;i++){const s=Math.max(-1,Math.min(1,inp[Math.floor(i*r)]));out[i]=s<0?s*32768:s*32767;}ws.send(out.buffer);};
             const mute=ctx.createGain();mute.gain.value=0;src.connect(proc);proc.connect(mute);mute.connect(ctx.destination);
             try{localStorage.setItem('prof',JSON.stringify({l:letter,b:base,a:av}));}catch(e){}
-            $('me-av').innerHTML=$('me-av2').innerHTML=avatar(av);ws.send(JSON.stringify({t:'login',base,num:$('num').value,avatar:av}));};
+            $('me-av').innerHTML=$('me-av2').innerHTML=avatar(av);profileReady=true;$('me').textContent=$('me2').textContent=base+($('num').value.trim()?'-'+$('num').value.trim():'');show('s-lines');if(on())sendLogin();};
+          function sendLogin(){ws.send(JSON.stringify({t:'login',base,num:$('num').value,avatar:av}));}
+          const ok2=()=>{if(on()&&loggedIn)return true;showErr(t('nocon'));return false;};
 
           function play(buf){if(!ctx)return;const i16=new Int16Array(buf),f=new Float32Array(i16.length);for(let i=0;i<f.length;i++)f[i]=i16[i]/32768;
             const ab=ctx.createBuffer(1,f.length,16000);ab.copyToChannel(f,0);const s=ctx.createBufferSource();s.buffer=ab;s.connect(ctx.destination);
@@ -568,8 +585,8 @@ jobs:
           addEventListener('keydown',e=>{if(e.code==='Space'&&!e.repeat&&e.target.tagName!=='INPUT'&&$('s-home').classList.contains('on')){e.preventDefault();startTalk();}});
           addEventListener('keyup',e=>{if(e.code==='Space')stopTalk();});addEventListener('blur',()=>stopTalk());
 
-          $('create').onclick=()=>on()&&ws.send(JSON.stringify({t:'create',code:$('code').value}));
-          $('join').onclick=()=>on()&&ws.send(JSON.stringify({t:'join',code:$('code').value}));
+          $('create').onclick=()=>ok2()&&ws.send(JSON.stringify({t:'create',code:$('code').value}));
+          $('join').onclick=()=>ok2()&&ws.send(JSON.stringify({t:'join',code:$('code').value}));
           $('bLeave').onclick=()=>on()&&ws.send(JSON.stringify({t:'leave'}));
           const sendChat=()=>{const x=$('ctext').value.trim();if(x&&inLine&&on()){ws.send(JSON.stringify({t:'chat',text:x}));$('ctext').value='';}};
           $('csend').onclick=sendChat;$('ctext').onkeydown=e=>{if(e.key==='Enter')sendChat();};
